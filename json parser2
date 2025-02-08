@@ -1,0 +1,154 @@
+package com.example.jsonparser;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.*;
+
+import javax.sql.DataSource;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+@SpringBootApplication
+public class JsonParserApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(JsonParserApplication.class, args);
+    }
+
+    @Bean
+    public DataSource dataSource() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setDriverClassName("oracle.jdbc.OracleDriver");
+        dataSource.setUrl("jdbc:oracle:thin:@localhost:1521:orcl");
+        dataSource.setUsername("your_username");
+        dataSource.setPassword("your_password");
+        return dataSource;
+    }
+}
+
+@RestController
+@RequestMapping("/json")
+class JsonController {
+    private final JsonProcessingService jsonProcessingService;
+
+    public JsonController(JsonProcessingService jsonProcessingService) {
+        this.jsonProcessingService = jsonProcessingService;
+    }
+
+    @PostMapping("/process")
+    public String processJson(@RequestParam String clientId, @RequestBody String jsonData) {
+        try {
+            jsonProcessingService.processJson(clientId, jsonData);
+            return "JSON processed successfully";
+        } catch (Exception e) {
+            return "Error processing JSON: " + e.getMessage();
+        }
+    }
+}
+
+@Service
+class JsonProcessingService {
+    private final JdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public JsonProcessingService(JdbcTemplate jdbcTemplate) {
+        this.jdbcTemplate = jdbcTemplate;
+    }
+
+    public void processJson(String clientId, String jsonData) throws Exception {
+        JsonNode rootNode = objectMapper.readTree(jsonData);
+        List<Object[]> records = new ArrayList<>();
+        parseAndCollectData(clientId, rootNode, records, "root");
+        batchInsert(records);
+    }
+
+    private void parseAndCollectData(String clientId, JsonNode node, List<Object[]> records, String parentKey) {
+        System.out.println("Processing JPATH: " + parentKey);
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                parseAndCollectData(clientId, field.getValue(), records, parentKey + "." + field.getKey());
+            }
+        } else if (node.isArray()) {
+            int index = 0;
+            for (JsonNode arrayElement : node) {
+                parseAndCollectData(clientId, arrayElement, records, parentKey + "[" + index + "]");
+                index++;
+            }
+        } else {
+            records.add(new Object[]{clientId, parentKey, node.asText()});
+        }
+    }
+
+    private void batchInsert(List<Object[]> records) {
+        String sql = "INSERT INTO client_data (client_id, key_name, value) VALUES (?, ?, ?)";
+        jdbcTemplate.batchUpdate(sql, records);
+    }
+}
+
+// pom.xml
+/*
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>json-parser</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>json-parser</name>
+    <description>JSON Parser Application</description>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.7.4</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+
+    <properties>
+        <java.version>11</java.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc8</artifactId>
+            <version>19.8.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+*/
