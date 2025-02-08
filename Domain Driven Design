@@ -1,0 +1,72 @@
+i build a API in spring boot in following design, please correct if design is not good
+
+1) Service Name A - Its a gateway to Client Request, Expose HTTP port for client communication
+2) Service Name B - Functional Service - Its doing Client Req Validation and Enrichment
+3) Service Name C - Its doing Orchestration service, to connect Service D/E based on input to get transaction details and prepare the response message send to Service A for client response
+4) Service Name D - Used to connect mastercard API to get the transaction details
+5) Service Name E - Connect Visa to get the transaction details
+
+
+A is connecting to B via Solace
+B is connecting to V via Solace
+C is connecting to D/E via Solace
+D/E is connecting to C via Solace
+C is reply the final response to Service A via solace (Reply patter)
+A will provide the HTTP response to client
+
+
+
+
+Pros:
+Loose Coupling:
+
+Services communicate asynchronously using Solace, reducing dependencies.
+Scalability:
+
+Each service can scale independently based on load.
+Resilience & Fault Tolerance:
+
+If a downstream service (D/E) fails, retry logic in C can prevent full system failure.
+Event-Driven Architecture:
+
+Solace messaging ensures efficient handling of high-volume transactions.
+Service Specialization:
+
+Each service has a clear role, making the system maintainable.
+
+
+Cons / Potential Issues:
+Latency Overhead:
+
+Solace messaging adds extra hops compared to direct HTTP calls.
+Complex Debugging & Observability:
+
+Harder to trace transactions end-to-end without strong logging and monitoring.
+Error Handling Complexity:
+
+Need robust retry and dead-letter queues for message failures.
+Backpressure & Message Ordering:
+
+Handling high message throughput in C (orchestration) can be challenging.
+High Dependency on Solace:
+
+Any Solace downtime will impact communication between services.
+
+
+
+
+
+
+Suggested Improvements
+
+Introduce Circuit Breakers & Retries:
+Use Resilience4j in Spring Boot for handling failures in C (especially when calling D/E) and D/E.
+
+Implement Distributed Tracing:
+Use OpenTelemetry or Spring Cloud Sleuth with Kibana/Jaeger for tracing messages across services.
+Optimize Message Processing in Service C:
+
+Consider parallel processing if C is handling a large volume of requests.
+Use Dead Letter Queues (DLQ):
+
+If D/E fails frequently, use a DLQ in Solace to prevent message loss.
