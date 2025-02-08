@@ -11,10 +11,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 
 import javax.sql.DataSource;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 @SpringBootApplication
 public class JsonParserApplication {
@@ -84,8 +82,43 @@ class JsonProcessingService {
                 index++;
             }
         } else {
-            records.add(new Object[]{clientId, parentKey, node.asText()});
+            records.add(new Object[]{clientId, parentKey, formatValue(parentKey, node.asText())});
         }
+    }
+
+    private String formatValue(String key, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "N/A";
+        }
+        if (key.toLowerCase().contains("date")) {
+            try {
+                SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd");
+                SimpleDateFormat outputFormat = new SimpleDateFormat("dd/MM/yyyy");
+                return outputFormat.format(inputFormat.parse(value));
+            } catch (Exception e) {
+                return value;
+            }
+        }
+        if (key.toLowerCase().contains("name")) {
+            return value.toUpperCase();
+        }
+        if (key.toLowerCase().contains("amount") || key.toLowerCase().contains("price")) {
+            try {
+                return String.format("%.2f", Double.parseDouble(value));
+            } catch (NumberFormatException e) {
+                return value;
+            }
+        }
+        if (key.toLowerCase().contains("country") && value.equalsIgnoreCase("IN")) {
+            return "India";
+        }
+        if (value.equalsIgnoreCase("true")) {
+            return "1";
+        }
+        if (value.equalsIgnoreCase("false")) {
+            return "0";
+        }
+        return value;
     }
 
     private void batchInsert(List<Object[]> records) {
