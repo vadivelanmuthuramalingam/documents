@@ -1,6 +1,8 @@
 package com.example.jsonparser;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,8 +13,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.*;
 
 import javax.sql.DataSource;
-import java.text.SimpleDateFormat;
-import java.util.*;
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 
 @SpringBootApplication
 public class JsonParserApplication {
@@ -43,7 +46,7 @@ class JsonController {
     @PostMapping("/process")
     public String processJson(@RequestParam String clientId, @RequestBody String jsonData) {
         try {
-            jsonProcessingService.processJson(clientId, jsonData);
+            jsonProcessingService.processJsonStreaming(clientId, jsonData);
             return "JSON processed successfully";
         } catch (Exception e) {
             return "Error processing JSON: " + e.getMessage();
@@ -60,65 +63,40 @@ class JsonProcessingService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
-    public void processJson(String clientId, String jsonData) throws Exception {
-        JsonNode rootNode = objectMapper.readTree(jsonData);
-        List<Object[]> records = new ArrayList<>();
-        parseAndCollectData(clientId, rootNode, records, "root");
-        batchInsert(records);
-    }
+    public void processJsonStreaming(String clientId, String jsonData) throws Exception {
+        JsonFactory factory = new JsonFactory();
+        try (JsonParser parser = factory.createParser(new StringReader(jsonData))) {
+            List<Object[]> records = new ArrayList<>();
+            String currentPath = "root";
+            boolean insideArray = false;
+            int arrayIndex = -1;
 
-    private void parseAndCollectData(String clientId, JsonNode node, List<Object[]> records, String parentKey) {
-        System.out.println("Processing JPATH: " + parentKey);
-        if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> field = fields.next();
-                parseAndCollectData(clientId, field.getValue(), records, parentKey + "." + field.getKey());
-            }
-        } else if (node.isArray()) {
-            int index = 0;
-            for (JsonNode arrayElement : node) {
-                parseAndCollectData(clientId, arrayElement, records, parentKey + "[" + index + "]");
-                index++;
-            }
-        } else {
-            records.add(new Object[]{clientId, parentKey, formatValue(parentKey, node.asText())});
-        }
-    }
+            while (!parser.isClosed()) {
+                JsonToken token = parser.nextToken();
 
-    private String formatValue(String key, String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return "N/A";
-        }
-        if (key.toLowerCase().contains("date")) {
-            try {
-                SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd");
-                SimpleDateFormat outputFormat = new SimpleDateFormat("dd/MM/yyyy");
-                return outputFormat.format(inputFormat.parse(value));
-            } catch (Exception e) {
-                return value;
+                if (token == JsonToken.START_ARRAY) {
+                    insideArray = true;
+                    arrayIndex = 0;
+                } else if (token == JsonToken.END_ARRAY) {
+                    insideArray = false;
+                    arrayIndex = -1;
+                } else if (token == JsonToken.START_OBJECT) {
+                    if (insideArray) {
+                        currentPath = currentPath + "[" + arrayIndex + "]";
+                    }
+                } else if (token == JsonToken.END_OBJECT) {
+                    if (insideArray) {
+                        arrayIndex++;
+                    }
+                } else if (token == JsonToken.FIELD_NAME) {
+                    currentPath = currentPath + "." + parser.getCurrentName();
+                } else if (token == JsonToken.VALUE_STRING || token == JsonToken.VALUE_NUMBER_INT || token == JsonToken.VALUE_NUMBER_FLOAT) {
+                    String keyPath = insideArray ? currentPath + "[" + arrayIndex + "]" : currentPath;
+                    records.add(new Object[]{clientId, keyPath, parser.getText()});
+                }
             }
+            batchInsert(records);
         }
-        if (key.toLowerCase().contains("name")) {
-            return value.toUpperCase();
-        }
-        if (key.toLowerCase().contains("amount") || key.toLowerCase().contains("price")) {
-            try {
-                return String.format("%.2f", Double.parseDouble(value));
-            } catch (NumberFormatException e) {
-                return value;
-            }
-        }
-        if (key.toLowerCase().contains("country") && value.equalsIgnoreCase("IN")) {
-            return "India";
-        }
-        if (value.equalsIgnoreCase("true")) {
-            return "1";
-        }
-        if (value.equalsIgnoreCase("false")) {
-            return "0";
-        }
-        return value;
     }
 
     private void batchInsert(List<Object[]> records) {
@@ -126,62 +104,3 @@ class JsonProcessingService {
         jdbcTemplate.batchUpdate(sql, records);
     }
 }
-
-// pom.xml
-/*
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-
-    <groupId>com.example</groupId>
-    <artifactId>json-parser</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
-    <packaging>jar</packaging>
-
-    <name>json-parser</name>
-    <description>JSON Parser Application</description>
-
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.4</version>
-        <relativePath/> <!-- lookup parent from repository -->
-    </parent>
-
-    <properties>
-        <java.version>11</java.version>
-    </properties>
-
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-jdbc</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>com.oracle.database.jdbc</groupId>
-            <artifactId>ojdbc8</artifactId>
-            <version>19.8.0.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
-</project>
-*/
