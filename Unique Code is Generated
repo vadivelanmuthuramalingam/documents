@@ -1,0 +1,167 @@
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.bouncycastle</groupId>
+    <artifactId>bcprov-jdk15on</artifactId>
+    <version>1.70</version>
+</dependency>
+
+
+
+import javax.crypto.Cipher;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+public class AadharEncryptionUtil {
+    private static final String SECRET_KEY = "MySuperSecureKey123"; // Store this securely (Vault/KMS)
+    private static final String SALT = "MySaltValue"; // Store this securely
+    private static final String AES_ALGO = "AES/CBC/PKCS5Padding";
+    
+    // Generate a fixed IV (not recommended for non-deterministic encryption)
+    private static final IvParameterSpec IV_PARAM_SPEC = new IvParameterSpec(new byte[16]);
+
+    public static String encrypt(String data) throws Exception {
+        SecretKeySpec keySpec = getSecretKey();
+        Cipher cipher = Cipher.getInstance(AES_ALGO);
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, IV_PARAM_SPEC);
+        byte[] encryptedData = cipher.doFinal(data.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(encryptedData);
+    }
+
+    public static String decrypt(String encryptedData) throws Exception {
+        SecretKeySpec keySpec = getSecretKey();
+        Cipher cipher = Cipher.getInstance(AES_ALGO);
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, IV_PARAM_SPEC);
+        byte[] decodedBytes = Base64.getDecoder().decode(encryptedData);
+        byte[] originalData = cipher.doFinal(decodedBytes);
+        return new String(originalData, StandardCharsets.UTF_8);
+    }
+
+    public static String generateAadharHash(String aadhar) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(aadhar.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(hash);
+    }
+
+    private static SecretKeySpec getSecretKey() throws Exception {
+        SecretKeyFactory factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        PBEKeySpec spec = new PBEKeySpec(SECRET_KEY.toCharArray(), SALT.getBytes(), 65536, 256);
+        SecretKey secretKey = factory.generateSecret(spec);
+        return new SecretKeySpec(secretKey.getEncoded(), "AES");
+    }
+}
+
+
+
+
+import org.springframework.stereotype.Service;
+import java.util.Optional;
+
+@Service
+public class AadharService {
+    private final UserAadharRepository repository;
+
+    public AadharService(UserAadharRepository repository) {
+        this.repository = repository;
+    }
+
+    public void storeAadhar(String aadhar) throws Exception {
+        String encryptedAadhar = AadharEncryptionUtil.encrypt(aadhar);
+        String aadharHash = AadharEncryptionUtil.generateAadharHash(aadhar);
+
+        UserAadhar userAadhar = new UserAadhar();
+        userAadhar.setEncryptedAadhar(encryptedAadhar);
+        userAadhar.setAadharHash(aadharHash);
+
+        repository.save(userAadhar);
+    }
+
+    public Optional<String> fetchAadhar(String aadhar) throws Exception {
+        String aadharHash = AadharEncryptionUtil.generateAadharHash(aadhar);
+        return repository.findByAadharHash(aadharHash)
+                .map(userAadhar -> {
+                    try {
+                        return AadharEncryptionUtil.decrypt(userAadhar.getEncryptedAadhar());
+                    } catch (Exception e) {
+                        throw new RuntimeException("Decryption failed");
+                    }
+                });
+    }
+}
+
+
+
+How This Works
+Storing Aadhaar Number
+
+Encrypts Aadhaar using AES-256.
+Generates SHA-256 hash of the Aadhaar (used for lookups).
+Stores both in the database.
+Fetching Aadhaar Number
+
+Computes the SHA-256 hash for lookup.
+Fetches the encrypted Aadhaar from DB.
+Decrypts it and returns the original Aadhaar.
+Advantages
+✅ Secure: Aadhaar is encrypted using AES-256, preventing plaintext exposure.
+✅ Efficient Lookups: Searches are done using SHA-256 hash instead of decrypted data.
+✅ Regulatory Compliance: Only encrypted values are stored.
+✅ Uniqueness Maintained: Same Aadhaar → Same encrypted value.
+
+
+
+It is highly unlikely that the generateAadharHash method (which uses SHA-256) will return duplicate hash values for different Aadhaar numbers.
+
+However, there is a very small theoretical probability of hash collisions (two different inputs producing the same hash). But in practice, with SHA-256:
+
+The chance of a collision is extremely low (almost impossible with realistic input sizes).
+SHA-256 produces a 256-bit unique hash, which means there are 2^256 possible outputs.
+Even if you hash billions of Aadhaar numbers, you are very unlikely to see a duplicate.
+Why Is This Important?
+Since we are using the hash for lookups, a hash collision would mean that two different Aadhaar numbers could be mistakenly treated as the same. While it's not a practical concern with SHA-256, for critical systems, we can take extra measures.
+
+How to Avoid Even Theoretical Collisions?
+Use HMAC (Hash-based Message Authentication Code)
+
+Instead of plain SHA-256, use HMAC-SHA-256 with a secret key.
+This makes it even more unique and tamper-proof.
+Example:
+java
+Copy
+Edit
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.util.Base64;
+
+public class HashUtil {
+    private static final String SECRET_KEY = "SuperSecureKey123"; // Keep this secret
+
+    public static String generateAadharHash(String aadhar) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        SecretKeySpec secretKeySpec = new SecretKeySpec(SECRET_KEY.getBytes(), "HmacSHA256");
+        mac.init(secretKeySpec);
+        byte[] hash = mac.doFinal(aadhar.getBytes());
+        return Base64.getEncoder().encodeToString(hash);
+    }
+}
+Why? HMAC-SHA-256 reduces collision chances even further by adding a secret key.
+Store Both Hash & Partial Aadhaar for Extra Safety
+
+Instead of just storing hash(aadhar), store a part of the Aadhaar (like last 4 digits).
+This helps in manually resolving any rare collisions.
+Use a Larger Hashing Algorithm (SHA-512)
+
+If you're worried about SHA-256, you can switch to SHA-512, which has an even lower chance of collisions.
+Final Verdict
+✅ SHA-256 collisions are nearly impossible in practice.
+✅ Using HMAC-SHA-256 is even more secure.
+✅ Storing an extra unique identifier (like last 4 digits) further prevents issues.
