@@ -1,0 +1,9 @@
+com.ibm.msg.client: DEBUG
+    com.ibm.mq: DEBUG
+    com.ibm.mq.jmqi: DEBUG
+    com.ibm.mq.connector: DEBUG
+    com.ibm.mq.jms: DEBUG
+    com.ibm.mq.pcf: DEBUG
+org.springframework.jms: DEBUG
+    org.springframework.boot.autoconfigure.jms: DEBUG
+    org.springframework.boot.autoconfigure.jms.JmsProperties: DEBUG
