@@ -1,0 +1,45 @@
+curl -u "BITBUCKET_USERNAME:BITBUCKET_APP_PASSWORD" \
+     -s "https://api.bitbucket.org/2.0/repositories/YOUR_WORKSPACE?pagelen=100" | jq -r '.values[].links.clone[] | select(.name=="https") | .href'
+
+
+  #!/bin/bash
+
+USERNAME="your-bitbucket-username"
+APP_PASSWORD="your-bitbucket-app-password"
+WORKSPACE="your-workspace"
+
+# Get list of repositories
+REPOS=$(curl -u "$USERNAME:$APP_PASSWORD" -s "https://api.bitbucket.org/2.0/repositories/$WORKSPACE?pagelen=100" | jq -r '.values[].links.clone[] | select(.name=="https") | .href')
+
+# Clone each repository
+for REPO in $REPOS; do
+    echo "Cloning $REPO..."
+    git clone "$REPO"
+done
+
+
+
+
+chmod +x clone_bitbucket_repos.sh
+./clone_bitbucket_repos.sh
+
+
+
+  #!/bin/bash
+
+WORKSPACE="your-workspace"
+USERNAME="your-bitbucket-username"
+APP_PASSWORD="your-bitbucket-app-password"
+
+# Get list of repositories
+REPOS=$(curl -u "$USERNAME:$APP_PASSWORD" -s "https://api.bitbucket.org/2.0/repositories/$WORKSPACE?pagelen=100" | jq -r '.values[].links.clone[] | select(.name=="ssh") | .href')
+
+# Clone each repository
+for REPO in $REPOS; do
+    echo "Cloning $REPO..."
+    git clone "$REPO"
+done
+
+
+
+
