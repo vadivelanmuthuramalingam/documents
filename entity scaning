@@ -1,3 +1,11 @@
+LLM Tool	Best Use Case	Pros	Cons
+OpenAI GPT-4o	On-demand code analysis	Best accuracy, easy API	Requires structured input
+Sourcegraph Cody	Large repo search	Works across services	Needs setup
+LangChain4J	LLM inside Spring Boot	Custom AI-powered tool	Needs integration
+GitHub Copilot X	Interactive code exploration	IDE-based, best UX	Not fully automated
+GPT-Engineer	Autonomous repo analysis	AI-powered documentation	Early-stage project
+
+
 {
   "application": "MyMonolithicApp",
   "controllers": [
