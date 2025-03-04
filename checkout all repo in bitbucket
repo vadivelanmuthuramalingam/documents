@@ -1,3 +1,8 @@
+REPOS=$(curl -u "$USERNAME:$APP_PASSWORD" -s "https://api.bitbucket.org/2.0/repositories/$WORKSPACE?pagelen=100" | \
+        grep -o '"slug": *"[^"]*' | sed 's/"slug": "//g')
+
+
+
 #!/bin/bash
 
 # Set your Bitbucket credentials
