@@ -1,3 +1,25 @@
+#!/bin/bash
+
+# Set your Bitbucket credentials
+USERNAME="your-bitbucket-username"
+APP_PASSWORD="your-bitbucket-app-password"
+WORKSPACE="your-workspace"
+
+# Get repository list from Bitbucket API
+REPOS=$(curl -u "$USERNAME:$APP_PASSWORD" -s "https://api.bitbucket.org/2.0/repositories/$WORKSPACE?pagelen=100" | \
+        grep -o '"https://bitbucket.org/[^"]*.git"' | sed 's/"//g')
+
+# Clone each repository
+for REPO in $REPOS; do
+    echo "Cloning $REPO..."
+    git clone "$REPO"
+done
+
+echo "✅ All repositories cloned successfully!"
+
+
+
+
 curl -u "BITBUCKET_USERNAME:BITBUCKET_APP_PASSWORD" \
      -s "https://api.bitbucket.org/2.0/repositories/YOUR_WORKSPACE?pagelen=100" | jq -r '.values[].links.clone[] | select(.name=="https") | .href'
 
