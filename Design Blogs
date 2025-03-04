@@ -1,0 +1,114 @@
+- Checksum
+↳https://lnkd.in/gJnJpnRF
+
+- CAP Theorem
+https://www.bmc.com/blogs/cap-theorem/
+
+- SQL vs NoSQL
+https://www.integrate.io/blog/the-sql-vs-nosql-difference/
+
+- Circuit Breaker
+https://medium.com/geekculture/design-patterns-for-microservices-circuit-breaker-pattern-276249ffab33
+
+- Load Balancing
+https://aws.amazon.com/what-is/load-balancing/
+
+- Fault Tolerance
+https://www.cockroachlabs.com/blog/what-is-fault-tolerance/
+
+- API Design
+https://blog.wahab2.com/api-architecture-best-practices-for-designing-rest-apis-bf907025f5f?gi=f5219316acaf
+
+- WebSockets
+https://www.pubnub.com/guides/websockets/
+
+- API Gateway
+https://www.nginx.com/learn/api-gateway/
+
+- Failover
+https://avinetworks.com/glossary/failover/
+
+- Caching
+https://medium.com/must-know-computer-science/system-design-caching-acbd1b02ca01
+
+- Scalability
+https://www.prepbytes.com/blog/system-design/how-to-achieve-scalability-in-system-design/
+
+- HeartBeat
+https://martinfowler.com/articles/patterns-of-distributed-systems/heartbeat.html
+
+- Proxy Server
+https://www.fortinet.com/resources/cyberglossary/proxy-server
+
+- Bloom Filters
+https://www.enjoyalgorithms.com/blog/bloom-filter
+
+- REST vs RPC
+https://lnkd.in/gVGeh3VV
+https://aws.amazon.com/compare/the-difference-between-rpc-and-rest/
+
+- Idempotency
+https://blog.dreamfactory.com/what-is-idempotency
+
+- Database Index
+https://www.progress.com/tutorials/odbc/using-indexes
+
+- Data Replication
+https://redis.io/blog/what-is-data-replication/
+
+- Database Scaling
+https://thenewstack.io/techniques-for-scaling-applications-with-a-database/
+
+- Data Redundancy
+https://www.egnyte.com/guides/governance/data-redundancy
+
+- Service Discovery
+https://www.nginx.com/blog/service-discovery-in-a-microservices-architecture/
+
+- Disaster Recovery
+https://cloud.google.com/learn/what-is-disaster-recovery
+
+- ACID Transactions
+https://redis.io/glossary/acid-transactions/
+
+- Database Sharding
+https://www.mongodb.com/resources/products/capabilities/database-sharding-explained
+
+- Distributed Locking
+https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html
+
+- Consistent Hashing
+https://arpitbhayani.me/blogs/consistent-hashing/
+
+- Distributed Caching
+https://redis.io/glossary/distributed-caching/
+
+- Consistency Patterns
+https://systemdesign.one/consistency-patterns/
+
+- Latency vs Throughput
+https://aws.amazon.com/compare/the-difference-between-throughput-and-latency/
+
+- Serverless Architecture
+https://www.datadoghq.com/knowledge-center/serverless-architecture/
+
+
+
+- System Design
+https://blog.algomaster.io/p/how-to-answer-a-system-design-interview-problem
+https://strategizeyourcareer.com/p/how-to-prepare-the-system-design-interview?r=2tt34d&triedRedirect=true
+
+
+- Multithreading Design Patterns
+https://www.linkedin.com/posts/curiouslearner_multithreading-activity-7197408091531816960-FOob/
+
+
+https://newsletter.systemdesigncodex.com/p/how-linkedin-uses-caching-for-profile-reads
+https://newsletter.systemdesign.one/p/amazon-s3-durability
+https://medium.com/@techworldwithmilan/rest-api-design-best-practices-2eb5e749d428
+
+
+https://www.thecaringtechie.com/p/how-to-self-manage-even-if-you-have
+https://thetshaped.dev/p/3-software-development-principles
+https://www.developing.dev/?r=1to968
+
