@@ -1,0 +1,59 @@
+{
+  "application": "MyMonolithicApp",
+  "controllers": [
+    {
+      "controllerName": "UserController",
+      "moduleName": "user-management",
+      "package": "com.example.usermanagement.controller",
+      "invokesServices": ["UserService"]
+    },
+    {
+      "controllerName": "OrderController",
+      "moduleName": "order-management",
+      "package": "com.example.ordermanagement.controller",
+      "invokesServices": ["OrderService"]
+    }
+  ],
+  "services": [
+    {
+      "serviceName": "UserService",
+      "moduleName": "user-management",
+      "package": "com.example.usermanagement.service",
+      "usedInControllers": ["UserController"]
+    },
+    {
+      "serviceName": "OrderService",
+      "moduleName": "order-management",
+      "package": "com.example.ordermanagement.service",
+      "usedInControllers": ["OrderController"]
+    }
+  ],
+  "entities": [
+    {
+      "entityName": "User",
+      "tableName": "users",
+      "moduleName": "user-management",
+      "package": "com.example.usermanagement.entity",
+      "relationships": [
+        {
+          "type": "OneToMany",
+          "targetEntity": "Order"
+        }
+      ],
+      "usedInServices": ["UserService", "OrderService"]
+    },
+    {
+      "entityName": "Order",
+      "tableName": "orders",
+      "moduleName": "order-management",
+      "package": "com.example.ordermanagement.entity",
+      "relationships": [
+        {
+          "type": "ManyToOne",
+          "targetEntity": "User"
+        }
+      ],
+      "usedInServices": ["OrderService"]
+    }
+  ]
+}
