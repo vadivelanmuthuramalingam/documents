@@ -65,3 +65,402 @@ GPT-Engineer	Autonomous repo analysis	AI-powered documentation	Early-stage proje
     }
   ]
 }
+
+
+
+
+
+https://chatgpt.com/c/67c68ceb-1b9c-8008-8221-b8ddd5b824ee
+
+{
+  "application": "MyMonolithicApp",
+  "controllers": {
+    "UserController": {
+      "package": "com.example.usermanagement.controller",
+      "repo": "my-repo",
+      "jar": "my-app.jar",
+      "module": "user-management",
+      "invokesServices": ["UserService"]
+    }
+  },
+  "services": {
+    "UserService": {
+      "package": "com.example.usermanagement.service",
+      "repo": "my-repo",
+      "jar": "my-app.jar",
+      "module": "user-management",
+      "usedInControllers": ["UserController"],
+      "usedEntities": ["User"],
+      "entityOperations": {
+        "User": ["SAVE", "UPDATE", "DELETE", "SELECT_BY_ID", "SELECT_WITH_ARGUMENTS"]
+      }
+    }
+  },
+  "repositories": {
+    "UserRepository": {
+      "package": "com.example.usermanagement.repository",
+      "repo": "my-repo",
+      "jar": "my-app.jar",
+      "module": "user-management",
+      "crudMethods": ["findById", "findAll", "save", "deleteById"]
+    }
+  },
+  "entities": {
+    "User": {
+      "tableName": "users",
+      "package": "com.example.usermanagement.entity",
+      "repo": "my-repo",
+      "jar": "my-app.jar",
+      "module": "user-management",
+      "relationships": ["Order"],
+      "usedInServices": ["UserService"]
+    }
+  }
+}
+
+
+
+
+
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.expr.AnnotationExpr;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.util.*;
+
+public class CodeAnalyzer {
+    private final Map<String, Map<String, String>> controllers = new HashMap<>();
+    private final Map<String, Map<String, String>> services = new HashMap<>();
+    private final Map<String, Map<String, String>> repositories = new HashMap<>();
+    private final Map<String, Map<String, String>> entities = new HashMap<>();
+    private final Map<String, List<String>> serviceToEntities = new HashMap<>();
+    private final Map<String, List<String>> entityOperations = new HashMap<>();
+    private final Map<String, List<String>> controllerToServices = new HashMap<>();
+    private final Map<String, List<String>> entityRelationships = new HashMap<>();
+    private final Map<String, List<String>> repositoryCrudMethods = new HashMap<>();
+
+    public void analyzeFile(File file, String repoName, String jarName, String moduleName) {
+        try (FileInputStream in = new FileInputStream(file)) {
+            CompilationUnit cu = new JavaParser().parse(in).getResult().orElse(null);
+            if (cu == null) return;
+
+            cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+                String className = clazz.getNameAsString();
+                String packageName = cu.getPackageDeclaration().map(pd -> pd.getNameAsString()).orElse("Unknown");
+
+                Map<String, String> metadata = Map.of(
+                        "package", packageName,
+                        "repo", repoName,
+                        "jar", jarName,
+                        "module", moduleName
+                );
+
+                // Identify Controllers
+                if (clazz.getAnnotations().stream().anyMatch(a -> a.getNameAsString().matches("RestController|Controller"))) {
+                    controllers.put(className, metadata);
+                }
+
+                // Identify Services
+                if (clazz.getAnnotations().stream().anyMatch(a -> a.getNameAsString().equals("Service"))) {
+                    services.put(className, metadata);
+
+			FileInputStream in = new FileInputStream(file)) 
+            CompilationUnit cu = new JavaParser().parse(in).getResult().orElse(null);
+			 List<String> operations = detectServiceOperations(cu);
+                    boolean hasNativeQuery = detectNativeQueries(cu);
+                    boolean hasTransactionManagement = detectTransactionalMethods(cu);
+                }
+
+                // Identify Repositories
+                if (clazz.getExtendedTypes().stream().anyMatch(e -> e.getNameAsString().contains("JpaRepository"))) {
+                    repositories.put(className, metadata);
+                    extractCrudMethodsFromRepositories(cu, className);
+                }
+
+                // Identify Entities and Extract Table Name
+                clazz.getAnnotations().stream().filter(a -> a.getNameAsString().matches("Entity|Table")).forEach(annotation -> {
+                    Map<String, String> entityMetadata = new HashMap<>(metadata);
+                    entityMetadata.put("tableName", extractTableName(annotation));
+                    entities.put(className, entityMetadata);
+                });
+
+                // Find Relationships
+                findServiceToEntityUsage(cu, className);
+                findEntityOperations(cu, className);
+                findControllerToServiceUsage(cu, className);
+                findEntityRelationships(cu, className);
+            });
+
+        } catch (Exception e) {
+            System.err.println("Error processing file: " + file.getName() + " - " + e.getMessage());
+        }
+    }
+
+    private String extractTableName(AnnotationExpr annotation) {
+        return annotation.getChildNodes().size() > 1 ? annotation.getChildNodes().get(1).toString().replace("\"", "") : "default_table";
+    }
+
+    private String extractTableName(ClassOrInterfaceDeclaration clazz) {
+        return clazz.getAnnotations().stream()
+                .filter(a -> a.getNameAsString().equals("Table"))
+                .findFirst()
+                .map(a -> a.getChildNodes().size() > 1 ? a.getChildNodes().get(1).toString().replace("\"", "") : "default_table")
+                .orElse("default_table");
+    }
+
+    private void findServiceToEntityUsage(CompilationUnit cu, String serviceName) {
+        List<String> entitiesUsed = new ArrayList<>();
+        for (String entity : entities.keySet()) {
+            if (cu.toString().contains(entity)) {
+                entitiesUsed.add(entity);
+            }
+        }
+        if (!entitiesUsed.isEmpty()) {
+            serviceToEntities.put(serviceName, entitiesUsed);
+        }
+    }
+
+    private boolean detectNativeQueries(CompilationUnit cu) {
+        return cu.findAll(MethodDeclaration.class).stream()
+                .anyMatch(method -> method.getAnnotations().stream()
+                        .anyMatch(a -> a.getNameAsString().equals("Query") && a.toString().contains("nativeQuery = true")));
+    }
+
+    private boolean detectTransactionalMethods(CompilationUnit cu) {
+        return cu.findAll(MethodDeclaration.class).stream()
+                .anyMatch(method -> method.getAnnotations().stream()
+                        .anyMatch(a -> a.getNameAsString().equals("Transactional")));
+    }
+
+    private void findEntityOperations(CompilationUnit cu, String serviceName) {
+        Map<String, List<String>> entityOps = new HashMap<>();
+        for (String entity : entities.keySet()) {
+            List<String> operations = new ArrayList<>();
+            String code = cu.toString();
+
+            // Detect CRUD operations
+            if (code.contains(entity + ".save(")) operations.add("SAVE");
+            if (code.contains(entity + ".update(")) operations.add("UPDATE");
+            if (code.contains(entity + ".delete(") || code.contains(entity + ".deleteById(")) operations.add("DELETE");
+
+            // Detect SELECT operations
+            if (code.contains(entity + ".findAll(")) operations.add("SELECT_ALL");
+            if (code.contains(entity + ".findById(")) operations.add("SELECT_BY_ID");
+            if (code.matches(".*" + entity + "\\.findBy[A-Z]\\w*\\(.*\\).*")) operations.add("SELECT_WITH_ARGUMENTS");
+
+            if (!operations.isEmpty()) {
+                entityOps.put(entity, operations);
+            }
+        }
+        entityOperations.putAll(entityOps);
+    }
+
+    private void extractCrudMethodsFromRepositories(CompilationUnit cu, String repositoryName) {
+        List<String> crudMethods = new ArrayList<>();
+
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+            if (clazz.getExtendedTypes().stream().anyMatch(e -> e.getNameAsString().contains("JpaRepository"))) {
+                clazz.getMethods().forEach(method -> crudMethods.add(method.getNameAsString()));
+            }
+        });
+
+        if (!crudMethods.isEmpty()) {
+            repositoryCrudMethods.put(repositoryName, crudMethods);
+        }
+    }
+
+    private void findControllerToServiceUsage(CompilationUnit cu, String controllerName) {
+        List<String> servicesUsed = new ArrayList<>();
+        for (String service : services.keySet()) {
+            if (cu.toString().contains(service)) {
+                servicesUsed.add(service);
+            }
+        }
+        if (!servicesUsed.isEmpty()) {
+            controllerToServices.put(controllerName, servicesUsed);
+        }
+    }
+
+    private void findEntityRelationships(CompilationUnit cu, String entityName) {
+        List<String> relationships = new ArrayList<>();
+        cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
+            clazz.getFields().forEach(field -> {
+                field.getAnnotations().forEach(annotation -> {
+                    if (annotation.getNameAsString().matches("OneToMany|ManyToOne|ManyToMany|OneToOne")) {
+                        relationships.add(field.getType().asString());
+                    }
+                });
+            });
+        });
+        if (!relationships.isEmpty()) {
+            entityRelationships.put(entityName, relationships);
+        }
+    }
+
+    public Map<String, Object> generateJson() {
+        Map<String, Object> jsonOutput = new HashMap<>();
+        jsonOutput.put("application", "MyMonolithicApp");
+        jsonOutput.put("controllers", controllers);
+        jsonOutput.put("services", services);
+        jsonOutput.put("repositories", repositories);
+        jsonOutput.put("entities", entities);
+        jsonOutput.put("repositoryCrudMethods", repositoryCrudMethods);
+        return jsonOutput;
+    }
+}
+
+
+
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.*;
+
+public class RepoScanner {
+    private static final int THREAD_POOL_SIZE = 10;
+
+    public static void scanAndAnalyze(String directoryPath, CodeAnalyzer codeAnalyzer, String repoName, String jarName, String moduleName) throws IOException, InterruptedException {
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+        List<File> javaFiles = Files.walk(Path.of(directoryPath))
+                .filter(path -> path.toString().endsWith(".java"))
+                .map(Path::toFile)
+                .toList();
+
+        for (File file : javaFiles) {
+            executor.execute(() -> codeAnalyzer.analyzeFile(file, repoName, jarName, moduleName));
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(1, TimeUnit.HOURS);
+    }
+}
+
+
+
+@RestController
+@RequestMapping("/analyze")
+public class AnalysisController {
+    private final CodeAnalyzer codeAnalyzer = new CodeAnalyzer();
+
+    @GetMapping("/run")
+    public Map<String, Object> analyzeCode(@RequestParam String sourcePath, @RequestParam String repoName, @RequestParam String jarName, @RequestParam String moduleName) throws Exception {
+        RepoScanner.scanAndAnalyze(sourcePath, codeAnalyzer, repoName, jarName, moduleName);
+        return codeAnalyzer.generateJson();
+    }
+}
+
+
+
+
+
+
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+public class ControllerInfo {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String controllerName;
+    private String packageName;
+    private String repoName;
+    private String jarName;
+    private String moduleName;
+}
+
+
+import jakarta.persistence.*;
+import lombok.*;
+import java.util.List;
+
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+public class ServiceInfo {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String serviceName;
+    private String packageName;
+    private String repoName;
+    private String jarName;
+    private String moduleName;
+
+    @ElementCollection
+    private List<String> usedInControllers;
+
+    @ElementCollection
+    private List<String> usedEntities;
+
+    @ElementCollection
+    private List<String> entityOperations;
+
+    private boolean hasNativeQuery;
+    private boolean hasTransactionManagement;
+}
+
+
+
+
+import jakarta.persistence.*;
+import lombok.*;
+import java.util.List;
+
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+public class RepositoryInfo {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String repositoryName;
+    private String packageName;
+    private String repoName;
+    private String jarName;
+    private String moduleName;
+
+    @ElementCollection
+    private List<String> crudMethods;
+}
+
+
+import jakarta.persistence.*;
+import lombok.*;
+import java.util.List;
+
+@Entity
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor
+public class EntityInfo {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String entityName;
+    private String tableName;
+    private String packageName;
+    private String repoName;
+    private String jarName;
+    private String moduleName;
+
+    @ElementCollection
+    private List<String> relationships;
+
+    @ElementCollection
+    private List<String> usedInServices;
+}
+
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface ControllerRepository extends JpaRepository<ControllerInfo, Long> {}
+public interface ServiceRepository extends JpaRepository<ServiceInfo, Long> {}
+public interface RepositoryRepository extends JpaRepository<RepositoryInfo, Long> {}
+public interface EntityRepository extends JpaRepository<EntityInfo, Long> {}
+
+
