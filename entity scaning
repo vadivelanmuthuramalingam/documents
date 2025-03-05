@@ -200,6 +200,18 @@ public class CodeAnalyzer {
         }
     }
 
+private List<String> detectServiceOperations(CompilationUnit cu) {
+        List<String> operations = new ArrayList<>();
+        String code = cu.toString();
+
+        if (code.contains(".save(") || code.contains(".create(")) operations.add("CREATE");
+        if (code.contains(".update(")) operations.add("UPDATE");
+        if (code.contains(".delete(") || code.contains(".deleteById(")) operations.add("DELETE");
+        if (code.contains(".findAll(") || code.contains(".findById(") || code.matches(".*\\.findBy[A-Z]\\w*\\(.*\\).*"))
+            operations.add("READ");
+
+        return operations;
+    }
     private String extractTableName(AnnotationExpr annotation) {
         return annotation.getChildNodes().size() > 1 ? annotation.getChildNodes().get(1).toString().replace("\"", "") : "default_table";
     }
