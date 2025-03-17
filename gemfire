@@ -1,0 +1,57 @@
+ <properties>
+        <java.version>17</java.version>
+        <spring-boot.version>3.2.5</spring-boot.version>
+        <geode.version>1.15.0</geode.version>
+    </properties>
+
+
+
+<!-- Apache Geode/GemFire Core -->
+        <dependency>
+            <groupId>org.apache.geode</groupId>
+            <artifactId>geode-core</artifactId>
+            <version>${geode.version}</version>
+        </dependency>
+
+        <!-- Geode Cache API -->
+        <dependency>
+            <groupId>org.apache.geode</groupId>
+            <artifactId>geode-cq</artifactId>
+            <version>${geode.version}</version>
+        </dependency>
+
+        <!-- Geode Spring Boot Starter (if using Spring Boot) -->
+        <dependency>
+            <groupId>org.springframework.geode</groupId>
+            <artifactId>spring-geode-starter</artifactId>
+            <version>1.8.2</version>
+        </dependency>
+
+
+
+// Create a cache instance
+        Cache cache = new CacheFactory().set("log-level", "config").create();
+
+        // Region 1 with TTL of 30 seconds
+        RegionFactory<String, String> regionFactory1 = cache.createRegionFactory(RegionShortcut.REPLICATE);
+        regionFactory1.setEntryTimeToLive(new ExpirationAttributes(30, ExpirationAction.DESTROY));
+        Region<String, String> region30Sec = regionFactory1.create("region30Sec");
+
+        // Region 2 with TTL of 60 seconds
+        RegionFactory<String, String> regionFactory2 = cache.createRegionFactory(RegionShortcut.REPLICATE);
+        regionFactory2.setEntryTimeToLive(new ExpirationAttributes(60, ExpirationAction.DESTROY));
+        Region<String, String> region60Sec = regionFactory2.create("region60Sec");
+
+        // Insert data into each region
+        region30Sec.put("key1", "value1");
+        region60Sec.put("key2", "value2");
+
+        System.out.println("Data stored in separate regions with different TTL.");
+
+        // Sleep and check if keys expire
+        Thread.sleep(35 * 1000);
+        System.out.println("After 35 sec - region30Sec key1: " + region30Sec.get("key1")); // Should be null
+        System.out.println("After 35 sec - region60Sec key2: " + region60Sec.get("key2")); // Should be "value2"
+
+        Thread.sleep(30 * 1000);
+        System.out.println("After 65 sec - region60Sec key2: " + region60Sec.get("key2")); 
