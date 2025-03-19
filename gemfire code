@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>gemfire-cache-client</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <dependencies>
+        <!-- Spring Boot Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Apache Geode (GemFire) Dependencies -->
+        <dependency>
+            <groupId>org.apache.geode</groupId>
+            <artifactId>geode-core</artifactId>
+            <version>1.15.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.geode</groupId>
+            <artifactId>geode-client</artifactId>
+            <version>1.15.0</version>
+        </dependency>
+
+        <!-- SSL and Security Dependencies -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>1.70</version>
+        </dependency>
+
+        <!-- Spring Boot Configuration Processor (optional) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+package com.example.gemfire;
+
+import org.apache.geode.cache.Region;
+import org.apache.geode.cache.client.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.annotation.PostConstruct;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class GemfireCacheService {
+
+    private final Map<String, Region<String, Object>> regions = new ConcurrentHashMap<>();
+    private ClientCache cache;
+
+    @Value("${gemfire.locator.host:localhost}")
+    private String locatorHost;
+
+    @Value("${gemfire.locator.port:10334}")
+    private int locatorPort;
+
+    @Value("${gemfire.username}")
+    private String username;
+
+    @Value("${gemfire.password}")
+    private String password;
+
+    @Value("${gemfire.ssl.keystore}")
+    private String keystorePath;
+
+    @Value("${gemfire.ssl.keystore.password}")
+    private String keystorePassword;
+
+    @Value("${gemfire.ssl.truststore}")
+    private String truststorePath;
+
+    @Value("${gemfire.ssl.truststore.password}")
+    private String truststorePassword;
+
+    @Value("${gemfire.default.ttl:60}")
+    private int defaultTTL;
+
+    @Value("${gemfire.pool.name:defaultPool}")
+    private String poolName;
+
+    @Value("${gemfire.pool.minConnections:5}")
+    private int minConnections;
+
+    @Value("${gemfire.pool.maxConnections:50}")
+    private int maxConnections;
+
+    @PostConstruct
+    public void init() {
+        System.setProperty("javax.net.ssl.keyStore", keystorePath);
+        System.setProperty("javax.net.ssl.keyStorePassword", keystorePassword);
+        System.setProperty("javax.net.ssl.trustStore", truststorePath);
+        System.setProperty("javax.net.ssl.trustStorePassword", truststorePassword);
+
+        Pool pool = new PoolFactory()
+                .addLocator(locatorHost, locatorPort)
+                .setMinConnections(minConnections)
+                .setMaxConnections(maxConnections)
+                .setSubscriptionEnabled(true)
+                .create(poolName);
+
+        this.cache = new ClientCacheFactory()
+                .set("security-username", username)
+                .set("security-password", password)
+                .set("ssl-enabled-components", "all")
+                .set("ssl-keystore", keystorePath)
+                .set("ssl-keystore-password", keystorePassword)
+                .set("ssl-truststore", truststorePath)
+                .set("ssl-truststore-password", truststorePassword)
+                .create();
+    }
+
+    public void connectRegion(String regionName) {
+        if (!regions.containsKey(regionName)) {
+            Region<String, Object> region = cache.createClientRegionFactory(ClientRegionShortcut.CACHING_PROXY)
+                    .setPoolName(poolName)
+                    .create(regionName);
+            regions.put(regionName, region);
+        }
+    }
+
+    public void put(String regionName, String key, Object value, int ttlSeconds) {
+        connectRegion(regionName);
+        Region<String, Object> region = regions.get(regionName);
+        if (region != null) {
+            region.put(key, value);
+            region.put(key + "_ttl", System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(ttlSeconds));
+        }
+    }
+
+    public Object get(String regionName, String key) {
+        connectRegion(regionName);
+        Region<String, Object> region = regions.get(regionName);
+        if (region != null) {
+            Long expiryTime = (Long) region.get(key + "_ttl");
+            if (expiryTime != null && expiryTime < System.currentTimeMillis()) {
+                delete(regionName, key);
+                return null;
+            }
+            return region.get(key);
+        }
+        return null;
+    }
+
+    public void delete(String regionName, String key) {
+        connectRegion(regionName);
+        Region<String, Object> region = regions.get(regionName);
+        if (region != null) {
+            region.remove(key);
+            region.remove(key + "_ttl");
+        }
+    }
+}
