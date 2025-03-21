@@ -1,0 +1,120 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <artifactId>my-app</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>My Spring Boot Application</name>
+
+    <properties>
+        <java.version>17</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Boot Web Starter -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Starter for Tomcat (Excluded in Thin JAR) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Spring Boot Maven Plugin -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven JAR Plugin to Generate Two Different JARs -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <!-- Fat JAR with Embedded Tomcat -->
+                    <execution>
+                        <id>with-embedded-tomcat</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <finalName>my-app-withtomcat</finalName>
+                        </configuration>
+                    </execution>
+                    <!-- Thin JAR without Embedded Tomcat -->
+                    <execution>
+                        <id>without-embedded-tomcat</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>without-tomcat</classifier>
+                            <finalName>my-app-withouttomcat</finalName>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Maven Profiles to Generate Different JARs -->
+    <profiles>
+        <!-- Fat JAR Profile (Default) -->
+        <profile>
+            <id>with-embedded-tomcat</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+        </profile>
+
+        <!-- Thin JAR Profile (Without Embedded Tomcat) -->
+        <profile>
+            <id>without-embedded-tomcat</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-web</artifactId>
+                    <exclusions>
+                        <exclusion>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-starter-tomcat</artifactId>
+                        </exclusion>
+                    </exclusions>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
+</project>
+
+
+
+
+
+mvn clean package -Pwith-embedded-tomcat
+java -jar target/my-app-withtomcat.jar
+
+
+mvn clean package -Pwithout-embedded-tomcat
+1) Rename my-app-withouttomcat.jar to my-app.war.
+2) Copy it to the Tomcat webapps folder
+cp target/my-app-withouttomcat.jar /path/to/tomcat/webapps/my-app.war
