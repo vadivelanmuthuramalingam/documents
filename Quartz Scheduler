@@ -1,0 +1,215 @@
+spring:
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org.quartz.jobStore.class: org.quartz.impl.jdbcjobstore.JobStoreTX
+      org.quartz.jobStore.driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+      org.quartz.jobStore.dataSource: quartzDataSource
+      org.quartz.jobStore.tablePrefix: QRTZ_
+      org.quartz.scheduler.instanceName: QuartzScheduler
+      org.quartz.scheduler.instanceId: AUTO
+      org.quartz.threadPool.threadCount: 5
+
+  datasource:
+    quartzDataSource:
+      driver-class-name: org.postgresql.Driver
+      url: jdbc:postgresql://your-db-host:5432/your-db
+      username: your-db-user
+      password: your-db-password
+
+
+
+Quartz Table Definitions
+Quartz requires 11 tables for job management. These tables are automatically created when Quartz runs with initialize-schema: always.
+
+Table Name	Purpose
+QRTZ_JOB_DETAILS	Stores job definitions, job class, and description.
+QRTZ_TRIGGERS	Stores trigger details linked to jobs.
+QRTZ_CRON_TRIGGERS	Stores cron expressions for scheduled jobs.
+QRTZ_SIMPLE_TRIGGERS	Stores simple (fixed interval) triggers.
+QRTZ_BLOB_TRIGGERS	Stores serialized job data.
+QRTZ_FIRED_TRIGGERS	Tracks triggers that have been fired.
+QRTZ_PAUSED_TRIGGER_GRPS	Stores paused trigger groups.
+QRTZ_CALENDARS	Stores Quartz calendars for complex schedules.
+QRTZ_LOCKS	Used for clustered Quartz instances to avoid conflicts.
+QRTZ_SCHEDULER_STATE	Tracks scheduler state in a clustered environment.
+QRTZ_TRIGGER_LISTENERS	Stores trigger listeners for job execution events.
+
+
+
+
+CREATE TABLE QRTZ_JOB_DETAILS (
+    SCHED_NAME VARCHAR(120) NOT NULL,
+    JOB_NAME VARCHAR(200) NOT NULL,
+    JOB_GROUP VARCHAR(200) NOT NULL,
+    JOB_CLASS_NAME VARCHAR(250) NOT NULL,
+    DESCRIPTION VARCHAR(250),
+    IS_DURABLE BOOLEAN NOT NULL,
+    IS_NONCONCURRENT BOOLEAN NOT NULL,
+    IS_UPDATE_DATA BOOLEAN NOT NULL,
+    REQUESTS_RECOVERY BOOLEAN NOT NULL,
+    JOB_DATA BYTEA,
+    PRIMARY KEY (SCHED_NAME, JOB_NAME, JOB_GROUP)
+);
+
+CREATE TABLE QRTZ_TRIGGERS (
+    SCHED_NAME VARCHAR(120) NOT NULL,
+    TRIGGER_NAME VARCHAR(200) NOT NULL,
+    TRIGGER_GROUP VARCHAR(200) NOT NULL,
+    JOB_NAME VARCHAR(200) NOT NULL,
+    JOB_GROUP VARCHAR(200) NOT NULL,
+    DESCRIPTION VARCHAR(250),
+    NEXT_FIRE_TIME BIGINT,
+    PREV_FIRE_TIME BIGINT,
+    PRIORITY INTEGER,
+    TRIGGER_STATE VARCHAR(16) NOT NULL,
+    TRIGGER_TYPE VARCHAR(8) NOT NULL,
+    START_TIME BIGINT NOT NULL,
+    END_TIME BIGINT,
+    CALENDAR_NAME VARCHAR(200),
+    MISFIRE_INSTR SMALLINT,
+    JOB_DATA BYTEA,
+    PRIMARY KEY (SCHED_NAME, TRIGGER_NAME, TRIGGER_GROUP),
+    FOREIGN KEY (SCHED_NAME, JOB_NAME, JOB_GROUP) REFERENCES QRTZ_JOB_DETAILS (SCHED_NAME, JOB_NAME, JOB_GROUP)
+);
+
+
+
+
+
+
+import org.quartz.spi.JobFactory;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.quartz.SchedulerFactoryBean;
+import javax.sql.DataSource;
+
+import org.quartz.*;
+import org.quartz.impl.StdSchedulerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.quartz.SchedulerFactoryBean;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
+import javax.sql.DataSource;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+@SpringBootApplication
+public class QuartzSchedulerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(QuartzSchedulerApplication.class, args);
+    }
+
+    @Bean
+    public SchedulerFactoryBean schedulerFactoryBean(DataSource dataSource) {
+        SchedulerFactoryBean factoryBean = new SchedulerFactoryBean();
+        factoryBean.setDataSource(dataSource);
+        factoryBean.setOverwriteExistingJobs(true);
+        factoryBean.setAutoStartup(true);
+        return factoryBean;
+    }
+}
+
+@Service
+public class QuartzSchedulerService {
+    private final Scheduler scheduler;
+    private final XmlSchedulerLoader schedulerLoader;
+
+    public QuartzSchedulerService(XmlSchedulerLoader schedulerLoader) throws SchedulerException {
+        this.scheduler = StdSchedulerFactory.getDefaultScheduler();
+        this.scheduler.start();
+        this.schedulerLoader = schedulerLoader;
+    }
+
+    @PostConstruct
+    public void initializeJobs() throws SchedulerException {
+        List<SchedulerConfig> schedulerConfigs = schedulerLoader.loadSchedulers();
+        for (SchedulerConfig config : schedulerConfigs) {
+            if (config.isEnabled()) {
+                scheduleJob(config);
+            }
+        }
+    }
+
+    private void scheduleJob(SchedulerConfig config) throws SchedulerException {
+        JobDetail jobDetail = JobBuilder.newJob(QuartzJob.class)
+                .withIdentity(config.getName())
+                .usingJobData(new JobDataMap(Map.of(
+                        "jobData", config.getJobDataAsMap(),
+                        "topicName", config.getTopicName()
+                )))
+                .build();
+
+        Trigger trigger = createTrigger(config);
+        scheduler.scheduleJob(jobDetail, trigger);
+    }
+
+    private Trigger createTrigger(SchedulerConfig config) {
+        switch (config.getScheduleType()) {
+            case "CRON":
+                return TriggerBuilder.newTrigger()
+                        .withSchedule(CronScheduleBuilder.cronSchedule(config.getCron()))
+                        .build();
+            case "FIXED_DELAY":
+                return TriggerBuilder.newTrigger()
+                        .withSchedule(SimpleScheduleBuilder.simpleSchedule()
+                                .withIntervalInMilliseconds(config.getFixedDelay())
+                                .repeatForever())
+                        .build();
+            case "DAILY_ONCE":
+            case "DAILY_TWICE":
+                return createDailyTrigger(config);
+            default:
+                throw new IllegalArgumentException("Unsupported schedule type: " + config.getScheduleType());
+        }
+    }
+
+    private Trigger createDailyTrigger(SchedulerConfig config) {
+        String[] times = config.getDailyTime().split(",");
+        int hour = Integer.parseInt(times[0].split(":")[0]);
+        int minute = Integer.parseInt(times[0].split(":")[1]);
+
+        return TriggerBuilder.newTrigger()
+                .withSchedule(DailyTimeIntervalScheduleBuilder.dailyTimeIntervalSchedule()
+                        .startingDailyAt(TimeOfDay.hourAndMinuteOfDay(hour, minute))
+                        .endingDailyAfterCount(1))
+                .build();
+    }
+}
+
+@Component
+public class QuartzJob implements Job {
+    @Autowired
+    private RedisLockService redisLockService;
+    @Autowired
+    private SolacePublisher solacePublisher;
+
+    @Override
+    public void execute(JobExecutionContext context) throws JobExecutionException {
+        String jobName = context.getJobDetail().getKey().getName();
+        Map<String, Object> jobData = context.getMergedJobDataMap();
+
+        if (!redisLockService.acquireLock(jobName, 30)) {
+            System.out.println("Skipping " + jobName + " - Another pod is executing it.");
+            return;
+        }
+
+        try {
+            System.out.println("Executing " + jobName + " at " + LocalDateTime.now());
+            solacePublisher.publishMessage((String) jobData.get("topicName"), jobData.toString());
+        } finally {
+            redisLockService.releaseLock(jobName);
+        }
+    }
+}
+
+
+
+
+
