@@ -101,6 +101,35 @@ public class SchedulerConfig {
 
 
 
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+
+@Service
+public class RedisLockService {
+
+    private final StringRedisTemplate redisTemplate;
+
+    public RedisLockService(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    public boolean acquireLock(String jobName, long lockTimeSeconds) {
+        String lockKey = "lock:scheduler:" + jobName;
+        Boolean success = redisTemplate.opsForValue().setIfAbsent(lockKey, "LOCKED", Duration.ofSeconds(lockTimeSeconds));
+        return Boolean.TRUE.equals(success);
+    }
+
+    public void releaseLock(String jobName) {
+        String lockKey = "lock:scheduler:" + jobName;
+        redisTemplate.delete(lockKey);
+    }
+}
+
+
+
+
 
 
 import org.springframework.scheduling.TaskScheduler;
@@ -190,12 +219,30 @@ public class DynamicSchedulerConfig implements SchedulingConfigurer {
     }
 
     private void executeJob(SchedulerConfig config) {
-        System.out.println("Executing " + config.getName() + " at " + LocalDateTime.now());
-        String jobDataJson = config.getJobData();
-        System.out.println("Job Data: " + jobDataJson);
+        String jobName = config.getName();
+        
+        // Try to acquire Redis lock before executing the job
+        if (!redisLockService.acquireLock(jobName, 30)) { // 30 seconds expiry
+            System.out.println("Skipping " + jobName + " - Another pod is executing it.");
+            return;
+        }
 
-        if (config.getTopicName() != null && !config.getTopicName().isEmpty()) {
-            solacePublisher.publishMessage(config.getTopicName(), jobDataJson);
+        try {
+            System.out.println("Executing " + jobName + " at " + LocalDateTime.now());
+
+            // Convert job data to JSON string
+            String jobDataJson = config.getJobData();
+            System.out.println("Job Data: " + jobDataJson);
+
+            // Publish to Solace topic
+            if (config.getTopicName() != null && !config.getTopicName().isEmpty()) {
+                System.out.println("Publishing to Solace topic: " + config.getTopicName());
+                solacePublisher.publishMessage(config.getTopicName(), jobDataJson);
+            }
+
+        } finally {
+            // Release lock after job execution
+            redisLockService.releaseLock(jobName);
         }
     }
 }
