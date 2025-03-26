@@ -1,0 +1,219 @@
+<schedulers>
+    <scheduler>
+        <name>Job1</name>
+        <cron>0 0/10 * * * ?</cron>
+        <enabled>true</enabled>
+        <onStart>true</onStart>
+        <scheduleType>CRON</scheduleType>
+        <topicName>job.queue.Job1</topicName>
+        <jobData>{"message": "Processing Job1", "jobType": "TypeA"}</jobData>
+    </scheduler>
+
+    <scheduler>
+        <name>Job2</name>
+        <fixedDelay>5000</fixedDelay>
+        <enabled>true</enabled>
+        <onStart>false</onStart>
+        <scheduleType>FIXED_DELAY</scheduleType>
+        <topicName>job.queue.Job2</topicName>
+        <jobData>{"message": "Executing Job2", "jobType": "TypeB"}</jobData>
+    </scheduler>
+
+    <scheduler>
+        <name>Job3</name>
+        <dailyTime>14:30</dailyTime>
+        <enabled>true</enabled>
+        <onStart>false</onStart>
+        <scheduleType>DAILY_ONCE</scheduleType>
+        <topicName>job.queue.Job3</topicName>
+        <jobData>{"message": "Daily Job Execution", "jobType": "TypeC"}</jobData>
+    </scheduler>
+
+    <scheduler>
+        <name>Job4</name>
+        <dailyTime>09:00,18:00</dailyTime>
+        <enabled>true</enabled>
+        <onStart>false</onStart>
+        <scheduleType>DAILY_TWICE</scheduleType>
+        <topicName>job.queue.Job4</topicName>
+        <jobData>{"message": "Morning and Evening Job", "jobType": "TypeD"}</jobData>
+    </scheduler>
+</schedulers>
+
+
+
+
+
+
+
+import jakarta.xml.bind.annotation.XmlElement;
+import java.util.Map;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class SchedulerConfig {
+    private String name;
+    private String cron;
+    private boolean enabled;
+    private boolean onStart;
+    private String scheduleType; // CRON, FIXED_DELAY, DAILY_ONCE, DAILY_TWICE
+    private Long fixedDelay; // Delay in milliseconds
+    private String dailyTime; // "HH:mm" or "HH:mm,HH:mm"
+    private String jobData;
+    private String topicName;
+
+    @XmlElement
+    public String getScheduleType() {
+        return scheduleType;
+    }
+
+    public void setScheduleType(String scheduleType) {
+        this.scheduleType = scheduleType;
+    }
+
+    @XmlElement
+    public Long getFixedDelay() {
+        return fixedDelay;
+    }
+
+    public void setFixedDelay(Long fixedDelay) {
+        this.fixedDelay = fixedDelay;
+    }
+
+    @XmlElement
+    public String getDailyTime() {
+        return dailyTime;
+    }
+
+    public void setDailyTime(String dailyTime) {
+        this.dailyTime = dailyTime;
+    }
+
+    public Map<String, Object> getJobDataAsMap() {
+        try {
+            return new ObjectMapper().readValue(jobData, Map.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid jobData JSON: " + jobData, e);
+        }
+    }
+}
+
+
+
+
+
+
+
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.scheduling.support.CronTrigger;
+import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+
+@Component
+public class DynamicSchedulerConfig implements SchedulingConfigurer {
+
+    private final XmlSchedulerLoader schedulerLoader;
+    private final SolacePublisher solacePublisher;
+    private final TaskScheduler taskScheduler;
+    private final ScheduledTaskRegistrar taskRegistrar = new ScheduledTaskRegistrar();
+
+    @Autowired
+    public DynamicSchedulerConfig(XmlSchedulerLoader schedulerLoader, SolacePublisher solacePublisher, TaskScheduler taskScheduler) {
+        this.schedulerLoader = schedulerLoader;
+        this.solacePublisher = solacePublisher;
+        this.taskScheduler = taskScheduler;
+    }
+
+    @Override
+    public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
+        List<SchedulerConfig> schedulerConfigs = schedulerLoader.loadSchedulers();
+
+        for (SchedulerConfig config : schedulerConfigs) {
+            if (!config.isEnabled()) {
+                System.out.println(config.getName() + " is disabled. Skipping...");
+                continue;
+            }
+
+            switch (config.getScheduleType()) {
+                case "CRON":
+                    taskRegistrar.addTriggerTask(
+                        () -> executeJob(config),
+                        triggerContext -> new CronTrigger(config.getCron()).nextExecutionTime(triggerContext)
+                    );
+                    break;
+
+                case "FIXED_DELAY":
+                    taskScheduler.scheduleWithFixedDelay(
+                        () -> executeJob(config),
+                        config.getFixedDelay()
+                    );
+                    break;
+
+                case "DAILY_ONCE":
+                    scheduleDailyJob(config, 1);
+                    break;
+
+                case "DAILY_TWICE":
+                    scheduleDailyJob(config, 2);
+                    break;
+
+                default:
+                    System.out.println("Invalid schedule type for " + config.getName());
+            }
+        }
+    }
+
+    private void scheduleDailyJob(SchedulerConfig config, int times) {
+        String[] dailyTimes = config.getDailyTime().split(",");
+        for (int i = 0; i < times; i++) {
+            LocalTime jobTime = LocalTime.parse(dailyTimes[i]);
+            long initialDelay = calculateInitialDelay(jobTime);
+            taskScheduler.schedule(
+                () -> executeJob(config),
+                new java.util.Date(System.currentTimeMillis() + initialDelay)
+            );
+        }
+    }
+
+    private long calculateInitialDelay(LocalTime jobTime) {
+        long nowMillis = System.currentTimeMillis();
+        long jobMillis = jobTime.atDate(LocalDateTime.now().toLocalDate()).toEpochSecond(java.time.ZoneOffset.UTC) * 1000;
+        return Math.max(jobMillis - nowMillis, 0);
+    }
+
+    private void executeJob(SchedulerConfig config) {
+        System.out.println("Executing " + config.getName() + " at " + LocalDateTime.now());
+        String jobDataJson = config.getJobData();
+        System.out.println("Job Data: " + jobDataJson);
+
+        if (config.getTopicName() != null && !config.getTopicName().isEmpty()) {
+            solacePublisher.publishMessage(config.getTopicName(), jobDataJson);
+        }
+    }
+}
+
+
+
+
+Executing Job1 on application start
+Publishing to Solace topic: job.queue.Job1
+
+Executing Job2 after 5 seconds delay
+Publishing to Solace topic: job.queue.Job2
+
+Executing Job3 at 14:30
+Publishing to Solace topic: job.queue.Job3
+
+Executing Job4 at 09:00
+Publishing to Solace topic: job.queue.Job4
+
+Executing Job4 at 18:00
+Publishing to Solace topic: job.queue.Job4
