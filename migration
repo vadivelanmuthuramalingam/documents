@@ -1,0 +1,9 @@
+Component	OpenShift Version	AWS Equivalent
+Service A - Gateway	Route + Ingress + Pod + Auth	Amazon API Gateway or ALB Ingress Controller + EKS Pod
+Authentication & Authorization	Custom Spring Security / OAuth2 in Service A	Amazon Cognito, AWS IAM, or continue using Spring Security in EKS
+Service B, C	Pod + Service	EKS Pods with Kubernetes Services
+Messaging (Solace)	Solace on OpenShift	Solace PubSub+ Cloud or self-hosted Solace in EKS/EC2
+Redis	External Redis / OpenShift Redis	Amazon ElastiCache for Redis
+Oracle DB	External or On-Prem Oracle	Amazon RDS for Oracle (or connect via Direct Connect/VPN if staying on-prem)
+Configuration	ConfigMaps, Secrets	AWS Secrets Manager, SSM Parameter Store
+Logging	Filebeat → Splunk, Kibana	CloudWatch Logs, Amazon OpenSearch (Kibana), Splunk integration
