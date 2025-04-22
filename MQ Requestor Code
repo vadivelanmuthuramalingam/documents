@@ -1,0 +1,157 @@
+<dependencies>
+    <dependency>
+        <groupId>com.ibm.mq</groupId>
+        <artifactId>com.ibm.mq.allclient</artifactId>
+        <version>9.3.0.0</version>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+</dependencies>
+
+
+
+
+ibm:
+  mq:
+    queue-manager: QM1
+    conn-name: myhost(1414)
+    channel: DEV.APP.SVRCONN
+    user: appuser
+    password: pass123
+    request-queue: REQUEST.QUEUE
+    ssl:
+      enabled: true
+      cipher-suite: TLS_RSA_WITH_AES_256_CBC_SHA256
+      key-store: file:/path/to/client.jks
+      key-store-password: changeit
+      trust-store: file:/path/to/truststore.jks
+      trust-store-password: changeit
+
+
+
+@Configuration
+public class MqConfig {
+
+    @Value("${ibm.mq.queue-manager}")
+    private String queueManager;
+
+    @Value("${ibm.mq.conn-name}")
+    private String connName;
+
+    @Value("${ibm.mq.channel}")
+    private String channel;
+
+    @Value("${ibm.mq.user}")
+    private String user;
+
+    @Value("${ibm.mq.password}")
+    private String password;
+
+    @Value("${ibm.mq.ssl.enabled}")
+    private boolean sslEnabled;
+
+    @Value("${ibm.mq.ssl.cipher-suite}")
+    private String cipherSuite;
+
+    @Value("${ibm.mq.ssl.key-store}")
+    private String keyStore;
+
+    @Value("${ibm.mq.ssl.key-store-password}")
+    private String keyStorePassword;
+
+    @Value("${ibm.mq.ssl.trust-store}")
+    private String trustStore;
+
+    @Value("${ibm.mq.ssl.trust-store-password}")
+    private String trustStorePassword;
+
+    @Bean
+    public ConnectionFactory connectionFactory() throws JMSException {
+        MQConnectionFactory factory = new MQConnectionFactory();
+        factory.setTransportType(JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
+        factory.setQueueManager(queueManager);
+        factory.setConnectionNameList(connName);
+        factory.setChannel(channel);
+        factory.setAppName("SpringBoot-MQ-Requestor");
+
+        factory.setStringProperty(WMQConstants.USERID, user);
+        factory.setStringProperty(WMQConstants.PASSWORD, password);
+
+        if (sslEnabled) {
+            factory.setSSLCipherSuite(cipherSuite);
+            System.setProperty("javax.net.ssl.keyStore", keyStore.replace("file:", ""));
+            System.setProperty("javax.net.ssl.keyStorePassword", keyStorePassword);
+            System.setProperty("javax.net.ssl.trustStore", trustStore.replace("file:", ""));
+            System.setProperty("javax.net.ssl.trustStorePassword", trustStorePassword);
+        }
+
+        return factory;
+    }
+
+    @Bean
+    public JmsTemplate jmsTemplate(ConnectionFactory connectionFactory) {
+        JmsTemplate jmsTemplate = new JmsTemplate(connectionFactory);
+        jmsTemplate.setReceiveTimeout(10000); // 10s timeout
+        return jmsTemplate;
+    }
+}
+
+
+
+
+
+
+@Service
+public class MqRequestorService {
+
+    private final JmsTemplate jmsTemplate;
+
+    @Value("${ibm.mq.request-queue}")
+    private String requestQueue;
+
+    public MqRequestorService(JmsTemplate jmsTemplate) {
+        this.jmsTemplate = jmsTemplate;
+    }
+
+    public String sendRequest(String payload) {
+    String correlationId = UUID.randomUUID().toString();
+    System.out.println("Generated Correlation ID: " + correlationId);
+
+    Message replyMsg = jmsTemplate.sendAndReceive(requestQueue, session -> {
+        TextMessage message = session.createTextMessage(payload);
+        message.setJMSCorrelationID(correlationId);
+        System.out.println("Sending message with CorrelationID: " + correlationId);
+        return message;
+    });
+
+    if (replyMsg == null) {
+        System.err.println("No reply received within timeout.");
+        return "No reply received.";
+    }
+
+    try {
+        String receivedCorrelationId = replyMsg.getJMSCorrelationID();
+        Destination replyTo = replyMsg.getJMSReplyTo();
+        String replyToQueue = replyTo != null ? replyTo.toString() : "N/A";
+
+        if (replyMsg instanceof TextMessage textMessage) {
+            String replyPayload = textMessage.getText();
+
+            System.out.println("Received reply:");
+            System.out.println("  Payload        : " + replyPayload);
+            System.out.println("  Correlation ID : " + receivedCorrelationId);
+            System.out.println("  ReplyTo Queue  : " + replyToQueue);
+
+            return replyPayload;
+        } else {
+            System.err.println("Unexpected reply type. ReplyTo: " + replyToQueue);
+            return "Invalid message type received.";
+        }
+    } catch (JMSException e) {
+        throw new RuntimeException("Failed to process reply message", e);
+    }
+   }
+
+}
