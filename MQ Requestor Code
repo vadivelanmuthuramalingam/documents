@@ -31,69 +31,75 @@ ibm:
 
 
 
-@Configuration
-public class MqConfig {
+import com.ibm.mq.jms.MQConnectionFactory;
+import com.ibm.msg.client.wmq.WMQConstants;
+import jakarta.jms.ConnectionFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.jms.connection.CachingConnectionFactory;
+import org.springframework.jms.core.JmsTemplate;
 
-    @Value("${ibm.mq.queue-manager}")
+@Configuration
+public class MQConfig {
+
+    @Value("${mq.host}")
+    private String host;
+
+    @Value("${mq.port}")
+    private int port;
+
+    @Value("${mq.queueManager}")
     private String queueManager;
 
-    @Value("${ibm.mq.conn-name}")
-    private String connName;
-
-    @Value("${ibm.mq.channel}")
+    @Value("${mq.channel}")
     private String channel;
 
-    @Value("${ibm.mq.user}")
+    @Value("${mq.user}")
     private String user;
 
-    @Value("${ibm.mq.password}")
+    @Value("${mq.password}")
     private String password;
 
-    @Value("${ibm.mq.ssl.enabled}")
-    private boolean sslEnabled;
-
-    @Value("${ibm.mq.ssl.cipher-suite}")
-    private String cipherSuite;
-
-    @Value("${ibm.mq.ssl.key-store}")
-    private String keyStore;
-
-    @Value("${ibm.mq.ssl.key-store-password}")
-    private String keyStorePassword;
-
-    @Value("${ibm.mq.ssl.trust-store}")
-    private String trustStore;
-
-    @Value("${ibm.mq.ssl.trust-store-password}")
-    private String trustStorePassword;
+    @Value("${mq.ssl.cipher}")
+    private String sslCipher;
 
     @Bean
-    public ConnectionFactory connectionFactory() throws JMSException {
+    public ConnectionFactory mqConnectionFactory() throws Exception {
         MQConnectionFactory factory = new MQConnectionFactory();
-        factory.setTransportType(JMSC.MQJMS_TP_CLIENT_MQ_TCPIP);
+        factory.setHostName(host);
+        factory.setPort(port);
         factory.setQueueManager(queueManager);
-        factory.setConnectionNameList(connName);
         factory.setChannel(channel);
-        factory.setAppName("SpringBoot-MQ-Requestor");
+        factory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
 
+        factory.setSSLFipsRequired(false);
+        factory.setSSLCipherSuite(sslCipher);
         factory.setStringProperty(WMQConstants.USERID, user);
         factory.setStringProperty(WMQConstants.PASSWORD, password);
+        factory.setBooleanProperty(WMQConstants.USER_AUTHENTICATION_MQCSP, true);
 
-        if (sslEnabled) {
-            factory.setSSLCipherSuite(cipherSuite);
-            System.setProperty("javax.net.ssl.keyStore", keyStore.replace("file:", ""));
-            System.setProperty("javax.net.ssl.keyStorePassword", keyStorePassword);
-            System.setProperty("javax.net.ssl.trustStore", trustStore.replace("file:", ""));
-            System.setProperty("javax.net.ssl.trustStorePassword", trustStorePassword);
-        }
+        // Reconnection & retry
+        factory.setBooleanProperty(WMQConstants.AUTO_RECONNECT, true);
+        factory.setIntProperty(WMQConstants.AUTO_RECONNECT_TIMEOUT, 60);
+        factory.setIntProperty(WMQConstants.RECONNECT_RETRIES, 5);
+        factory.setIntProperty(WMQConstants.RECONNECT_DELAY, 1000);
 
         return factory;
     }
 
     @Bean
-    public JmsTemplate jmsTemplate(ConnectionFactory connectionFactory) {
-        JmsTemplate jmsTemplate = new JmsTemplate(connectionFactory);
-        jmsTemplate.setReceiveTimeout(10000); // 10s timeout
+    public CachingConnectionFactory cachingConnectionFactory(ConnectionFactory mqConnectionFactory) {
+        CachingConnectionFactory cachingFactory = new CachingConnectionFactory(mqConnectionFactory);
+        cachingFactory.setSessionCacheSize(10); // You can tweak this
+        cachingFactory.setReconnectOnException(true);
+        return cachingFactory;
+    }
+
+    @Bean
+    public JmsTemplate jmsTemplate(CachingConnectionFactory cachingConnectionFactory) {
+        JmsTemplate jmsTemplate = new JmsTemplate(cachingConnectionFactory);
+        jmsTemplate.setReceiveTimeout(5000); // 5 seconds timeout for reply
         return jmsTemplate;
     }
 }
