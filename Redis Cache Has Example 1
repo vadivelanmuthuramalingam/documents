@@ -1,0 +1,100 @@
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class UserService {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    private final String USER_PREFIX = "user:";
+
+    // 🔸 Save a user
+    public void saveUser(User user) {
+        String key = USER_PREFIX + user.getId();
+        Map<String, Object> userMap = new HashMap<>();
+        userMap.put("id", user.getId());
+        userMap.put("name", user.getName());
+        userMap.put("email", user.getEmail());
+        userMap.put("age", user.getAge());
+        userMap.put("lastLogin", user.getLastLogin());
+        userMap.put("status", user.getStatus());
+
+        redisTemplate.opsForHash().putAll(key, userMap);
+    }
+
+    // 🔸 Fetch one user by ID
+    public User getUserById(String userId) {
+        String key = USER_PREFIX + userId;
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        if (map.isEmpty()) return null;
+        return mapToUser(map);
+    }
+
+    // 🔸 Fetch all users
+    public List<User> getAllUsers() {
+        Set<String> keys = redisTemplate.keys(USER_PREFIX + "*");
+        List<User> users = new ArrayList<>();
+        if (keys != null) {
+            for (String key : keys) {
+                Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+                if (!map.isEmpty()) {
+                    users.add(mapToUser(map));
+                }
+            }
+        }
+        return users;
+    }
+
+    // 🔸 Search users by status
+    public List<User> getUsersByStatus(String status) {
+        List<User> result = new ArrayList<>();
+        for (User user : getAllUsers()) {
+            if (status.equalsIgnoreCase(user.getStatus())) {
+                result.add(user);
+            }
+        }
+        return result;
+    }
+
+    // 🔸 Helper to convert Redis Hash to User
+    private User mapToUser(Map<Object, Object> map) {
+        return new User(
+                (String) map.get("id"),
+                (String) map.get("name"),
+                (String) map.get("email"),
+                Integer.parseInt(map.get("age").toString()),
+                (String) map.get("lastLogin"),
+                (String) map.get("status")
+        );
+    }
+}
+
+
+
+----- Refer    public void saveUser(User user) 
+redisTemplate.opsForHash().putAll("user:1001", userMap);
+
+Key: user:1001  --> User is a HashSet  and 1001 is KEY
+Type: Hash
+Fields:
+  id         -> 1001
+  name       -> John Doe
+  email      -> john@example.com
+  age        -> 30
+  lastLogin  -> 2025-04-22T08:30:00Z
+  status     -> ACTIVE
+
+
+---Simple its achieve today BAU only
+String userAsString = new ObjectMapper().writeValueAsString(user); // JSON
+redisTemplate.opsForValue().set("user:1001", userAsString);
+
+
+Key:   user:1001
+Value: {"id":"1001","name":"John Doe","email":"john@example.com",...}
+Type:  String
+
