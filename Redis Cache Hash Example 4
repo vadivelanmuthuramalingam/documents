@@ -1,0 +1,188 @@
+// File: GenericCacheService.java
+package com.platform.cache;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.stereotype.Service;
+
+import java.io.Serializable;
+import java.lang.reflect.Method;
+import java.util.*;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+
+@Configuration
+class RedisClientConfig {
+
+    @Bean
+    public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory redisConnectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(redisConnectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.setHashKeySerializer(new StringRedisSerializer());
+        template.setHashValueSerializer(new GenericJackson2JsonRedisSerializer());
+        template.afterPropertiesSet();
+        return template;
+    }
+}
+
+@Service
+public abstract class GenericCacheService<T, ID extends Serializable> {
+
+    private final RedisTemplate<String, Object> redisTemplate;
+    private final JpaRepository<T, ID> repository;
+    private final String prefix;
+
+    protected GenericCacheService(RedisTemplate<String, Object> redisTemplate,
+                                  JpaRepository<T, ID> repository,
+                                  String prefix) {
+        this.redisTemplate = redisTemplate;
+        this.repository = repository;
+        this.prefix = prefix.endsWith(":") ? prefix : prefix + ":";
+    }
+
+    private String getRedisKey(ID id) {
+        return prefix + id;
+    }
+
+    public T save(T entity, ID id) {
+        T saved = repository.save(entity);
+        redisTemplate.opsForValue().set(getRedisKey(id), saved);
+        return saved;
+    }
+
+    public List<T> saveAll(List<T> entities, List<ID> ids) {
+        List<T> savedEntities = repository.saveAll(entities);
+        for (int i = 0; i < savedEntities.size(); i++) {
+            redisTemplate.opsForValue().set(getRedisKey(ids.get(i)), savedEntities.get(i));
+        }
+        return savedEntities;
+    }
+
+    public T update(T entity, ID id) {
+        T updated = repository.save(entity);
+        redisTemplate.opsForValue().set(getRedisKey(id), updated);
+        return updated;
+    }
+
+    public List<T> updateAll(List<T> entities, List<ID> ids) {
+        List<T> updatedEntities = repository.saveAll(entities);
+        for (int i = 0; i < updatedEntities.size(); i++) {
+            redisTemplate.opsForValue().set(getRedisKey(ids.get(i)), updatedEntities.get(i));
+        }
+        return updatedEntities;
+    }
+
+    public void deleteById(ID id) {
+        repository.deleteById(id);
+        redisTemplate.delete(getRedisKey(id));
+    }
+
+    public void deleteAllById(List<ID> ids) {
+        repository.deleteAllById(ids);
+        List<String> redisKeys = ids.stream().map(this::getRedisKey).collect(Collectors.toList());
+        redisTemplate.delete(redisKeys);
+    }
+
+    public Optional<T> findById(ID id) {
+        String key = getRedisKey(id);
+        T cached = (T) redisTemplate.opsForValue().get(key);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+
+        return repository.findById(id).map(dbEntity -> {
+            redisTemplate.opsForValue().set(key, dbEntity);
+            return dbEntity;
+        });
+    }
+
+    public void evictCache(ID id) {
+        redisTemplate.delete(getRedisKey(id));
+    }
+
+    public List<T> query(Predicate<T> predicate) {
+        Set<String> keys = redisTemplate.keys(prefix + "*");
+        List<T> results = new ArrayList<>();
+
+        if (keys != null) {
+            for (String key : keys) {
+                T entity = (T) redisTemplate.opsForValue().get(key);
+                if (entity != null && predicate.test(entity)) {
+                    results.add(entity);
+                }
+            }
+        }
+
+        if (results.isEmpty()) {
+            results = repository.findAll().stream()
+                .filter(predicate)
+                .peek(entity -> {
+                    try {
+                        ID id = extractId(entity);
+                        redisTemplate.opsForValue().set(getRedisKey(id), entity);
+                    } catch (Exception e) {
+                        // log or handle
+                    }
+                })
+                .collect(Collectors.toList());
+        }
+
+        return results;
+    }
+
+    public List<T> queryCustom(String methodName, Object... params) {
+        try {
+            Method[] methods = repository.getClass().getMethods();
+            for (Method method : methods) {
+                if (method.getName().equals(methodName)) {
+                    List<T> results = (List<T>) method.invoke(repository, params);
+                    for (T entity : results) {
+                        try {
+                            ID id = extractId(entity);
+                            redisTemplate.opsForValue().set(getRedisKey(id), entity);
+                        } catch (Exception e) {
+                            // log or handle
+                        }
+                    }
+                    return results;
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        // fallback to DB call if Redis doesn't have the entries
+        List<T> fallbackResults = new ArrayList<>();
+        try {
+            Method[] methods = repository.getClass().getMethods();
+            for (Method method : methods) {
+                if (method.getName().equals(methodName)) {
+                    fallbackResults = (List<T>) method.invoke(repository, params);
+                    for (T entity : fallbackResults) {
+                        try {
+                            ID id = extractId(entity);
+                            redisTemplate.opsForValue().set(getRedisKey(id), entity);
+                        } catch (Exception e) {
+                            // log or handle
+                        }
+                    }
+                    break;
+                }
+            }
+        } catch (Exception ex) {
+            ex.printStackTrace();
+        }
+
+        return fallbackResults;
+    }
+
+    // Abstract method to extract ID from the entity
+    protected abstract ID extractId(T entity);
+}
