@@ -1,0 +1,159 @@
+<dependencies>
+    <!-- Core Spring Boot -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter</artifactId>
+    </dependency>
+
+    <!-- Redis Support -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!-- Jackson (optional, for JSON conversion if needed) -->
+    <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!-- Optional: Lombok (to simplify model classes) -->
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <optional>true</optional>
+    </dependency>
+
+    <!-- Optional: Spring Boot Test -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+
+    <!-- Optional: Embedded Redis for integration tests -->
+    <dependency>
+        <groupId>it.ozimov</groupId>
+        <artifactId>embedded-redis</artifactId>
+        <version>0.7.2</version>
+        <scope>test</scope>
+    </dependency>
+</dependencies>
+
+
+
+@Service
+public class RedisEntityService<T> {
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
+
+    private final RedisEntityConverter<T> converter;
+
+    private final String keyPrefix;
+    private final Class<T> type;
+
+    public RedisEntityService(RedisEntityConverter<T> converter, String keyPrefix, Class<T> type) {
+        this.converter = converter;
+        this.keyPrefix = keyPrefix.endsWith(":") ? keyPrefix : keyPrefix + ":";
+        this.type = type;
+    }
+
+    public void save(String id, T entity) {
+        String key = keyPrefix + id;
+        redisTemplate.opsForHash().putAll(key, converter.toMap(entity));
+    }
+
+    public T getById(String id) {
+        String key = keyPrefix + id;
+        Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+        return map.isEmpty() ? null : converter.fromMap(map);
+    }
+
+    public List<T> getAll() {
+        Set<String> keys = redisTemplate.keys(keyPrefix + "*");
+        List<T> result = new ArrayList<>();
+        if (keys != null) {
+            for (String key : keys) {
+                Map<Object, Object> map = redisTemplate.opsForHash().entries(key);
+                if (!map.isEmpty()) {
+                    result.add(converter.fromMap(map));
+                }
+            }
+        }
+        return result;
+    }
+
+    public List<T> search(Predicate<T> condition) {
+        return getAll().stream().filter(condition).collect(Collectors.toList());
+    }
+}
+
+
+
+
+
+🔁 Entity Converter Interface
+public interface RedisEntityConverter<T> {
+    Map<String, Object> toMap(T obj);
+    T fromMap(Map<Object, Object> map);
+}
+
+
+🎯 Example: UserConverter
+@Component
+public class UserConverter implements RedisEntityConverter<User> {
+    @Override
+    public Map<String, Object> toMap(User user) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", user.getId());
+        map.put("name", user.getName());
+        map.put("email", user.getEmail());
+        map.put("age", user.getAge());
+        map.put("lastLogin", user.getLastLogin());
+        map.put("status", user.getStatus());
+        return map;
+    }
+
+    @Override
+    public User fromMap(Map<Object, Object> map) {
+        return new User(
+            (String) map.get("id"),
+            (String) map.get("name"),
+            (String) map.get("email"),
+            Integer.parseInt(map.get("age").toString()),
+            (String) map.get("lastLogin"),
+            (String) map.get("status")
+        );
+    }
+}
+
+
+
+🧩 Usage in a Spring Component
+@Service
+public class UserService {
+
+    private final RedisEntityService<User> redisEntityService;
+
+    public UserService(UserConverter converter) {
+        this.redisEntityService = new RedisEntityService<>(converter, "user", User.class);
+    }
+
+    public void saveUser(User user) {
+        redisEntityService.save(user.getId(), user);
+    }
+
+    public User getUserById(String id) {
+        return redisEntityService.getById(id);
+    }
+
+    public List<User> getAllUsers() {
+        return redisEntityService.getAll();
+    }
+
+    public List<User> getUsersByStatus(String status) {
+        return redisEntityService.search(u -> status.equalsIgnoreCase(u.getStatus()));
+    }
+}
+
