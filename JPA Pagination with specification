@@ -1,0 +1,35 @@
+public class UserSpecification {
+    public static Specification<User> withFilters(String status, Integer age) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+
+            if (age != null) {
+                predicates.add(cb.greaterThan(root.get("age"), age));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+}
+
+
+
+
+
+Specification<User> spec = UserSpecification.withFilters("ACTIVE", 30);
+
+// Page number is 0 (first page), size is 30
+PageRequest pageRequest = PageRequest.of(0, 30, Sort.by("createdDate").descending());
+
+Page<User> result = userRepository.findAll(spec, pageRequest);
+
+// To get just the list:
+List<User> top30Users = result.getContent();
+
+
+
+
