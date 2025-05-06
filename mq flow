@@ -1,0 +1,27 @@
+🔹 1. Setup Queue Managers and Remote Queue
+In QM1 (Application 1):
+
+Define a Remote Queue:
+DEFINE QREMOTE('TO.QM2.LOCAL.REQUEST.QUEUE') RNAME('LOCAL.REQUEST.QUEUE') RQMNAME('QM2') XMITQ('TO.QM2.XMITQ')
+
+
+Define a Transmission Queue:
+DEFINE QLOCAL('TO.QM2.XMITQ') USAGE(XMITQ)
+
+In QM2 (Application 2):
+Define the local queue:
+DEFINE QLOCAL('LOCAL.REQUEST.QUEUE')
+Define the channels and communication link between QM1 and QM2.
+
+Work Flow:
+
+
+App1 (→ QM1) → [Remote Queue → XMITQ → QM2]
+                                          ↓
+                                 App2 (→ QM2) reads message
+                                          ↓
+                                 JMSReplyTo = Temp Queue on QM1
+                                          ↓
+                             QM2 → [Channel] → QM1 (Temp Queue)
+                                          ↓
+                                  App1 receives reply
