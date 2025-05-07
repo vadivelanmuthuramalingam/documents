@@ -1,0 +1,55 @@
+public class MyEntitySpecification {
+
+    public static Specification<MyEntity> buildFilter(String status, String type, LocalDateTime createdAfter) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+
+            if (type != null) {
+                predicates.add(cb.equal(root.get("type"), type));
+            }
+
+            if (createdAfter != null) {
+                predicates.add(cb.greaterThan(root.get("createdAt"), createdAfter));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+}
+
+
+
+Specification<MyEntity> spec = MyEntitySpecification.buildFilter("ACTIVE", null, LocalDateTime.now().minusDays(30));
+Pageable pageable = PageRequest.of(0, 30, Sort.by(Sort.Direction.DESC, "createdAt"));
+
+List<MyEntity> results = myEntityRepository.findAll(spec, pageable).getContent();
+
+
+
+
+
+public class MyEntityDto {
+    private String status;
+    private String type;
+
+    public MyEntityDto(String status, String type) {
+        this.status = status;
+        this.type = type;
+    }
+
+    // Getters
+}
+
+
+
+
+@Query("SELECT new com.example.MyEntityDto(e.status, e.type) " +
+       "FROM MyEntity e " +
+       "WHERE e.status = :status")
+List<MyEntityDto> findByStatus(@Param("status") String status);
+
+
