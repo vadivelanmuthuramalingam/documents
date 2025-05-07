@@ -1,0 +1,60 @@
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import redis.clients.jedis.*;
+
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.TrustManagerFactory;
+import java.io.FileInputStream;
+import java.security.KeyStore;
+
+@Configuration
+public class RedisMutualSSLConfig {
+
+    @Bean
+    public JedisPool jedisPool() throws Exception {
+        String redisHost = "your-redis-host";
+        int redisPort = 6380;
+        String redisPassword = "your-password";
+
+        // === Load Client Keystore ===
+        String keystorePath = "/path/to/client-keystore.jks";
+        String keystorePassword = "keystore-password";
+
+        KeyStore keyStore = KeyStore.getInstance("JKS");
+        try (FileInputStream keyStoreStream = new FileInputStream(keystorePath)) {
+            keyStore.load(keyStoreStream, keystorePassword.toCharArray());
+        }
+
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, keystorePassword.toCharArray());
+
+        // === Load Server Truststore ===
+        String truststorePath = "/path/to/truststore.jks";
+        String truststorePassword = "truststore-password";
+
+        KeyStore trustStore = KeyStore.getInstance("JKS");
+        try (FileInputStream trustStoreStream = new FileInputStream(truststorePath)) {
+            trustStore.load(trustStoreStream, truststorePassword.toCharArray());
+        }
+
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+        tmf.init(trustStore);
+
+        // === Initialize SSLContext with both keystore & truststore ===
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+
+        // === Create JedisClientConfig with SSL Context ===
+        HostAndPort hostAndPort = new HostAndPort(redisHost, redisPort);
+        JedisClientConfig clientConfig = DefaultJedisClientConfig.builder()
+                .password(redisPassword)
+                .ssl(true)
+                .sslSocketFactory(sslContext.getSocketFactory())
+                .build();
+        //we can add host name verifier above
+
+        // === Create JedisPool with Mutual TLS ===
+        return new JedisPool(new JedisPoolConfig(), hostAndPort, clientConfig);
+    }
+}
