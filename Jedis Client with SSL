@@ -45,16 +45,24 @@ public class RedisMutualSSLConfig {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
 
-        // === Create JedisClientConfig with SSL Context ===
+        // === Configure Jedis Pooling ===
+        JedisPoolConfig poolConfig = new JedisPoolConfig();
+        poolConfig.setMaxTotal(50);          // Max total connections
+        poolConfig.setMaxIdle(20);           // Max idle connections
+        poolConfig.setMinIdle(5);            // Min idle connections
+        poolConfig.setTestOnBorrow(true);    // Validate connection before use
+        poolConfig.setTestWhileIdle(true);   // Validate idle connections
+        poolConfig.setMinEvictableIdleTimeMillis(60000); // Idle timeout
+
+        // === Jedis Client Config with SSL ===
         HostAndPort hostAndPort = new HostAndPort(redisHost, redisPort);
         JedisClientConfig clientConfig = DefaultJedisClientConfig.builder()
                 .password(redisPassword)
                 .ssl(true)
                 .sslSocketFactory(sslContext.getSocketFactory())
                 .build();
-        //we can add host name verifier above
 
-        // === Create JedisPool with Mutual TLS ===
-        return new JedisPool(new JedisPoolConfig(), hostAndPort, clientConfig);
+        // === Create JedisPool ===
+        return new JedisPool(poolConfig, hostAndPort, clientConfig);
     }
 }
