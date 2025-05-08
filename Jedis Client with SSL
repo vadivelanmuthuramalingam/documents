@@ -47,12 +47,12 @@ public class RedisMutualSSLConfig {
 
         // === Configure Jedis Pooling ===
         JedisPoolConfig poolConfig = new JedisPoolConfig();
-        poolConfig.setMaxTotal(50);          // Max total connections
-        poolConfig.setMaxIdle(20);           // Max idle connections
-        poolConfig.setMinIdle(5);            // Min idle connections
-        poolConfig.setTestOnBorrow(true);    // Validate connection before use
-        poolConfig.setTestWhileIdle(true);   // Validate idle connections
-        poolConfig.setMinEvictableIdleTimeMillis(60000); // Idle timeout
+        poolConfig.setMaxTotal(50);
+        poolConfig.setMaxIdle(20);
+        poolConfig.setMinIdle(5);
+        poolConfig.setTestOnBorrow(true);
+        poolConfig.setTestWhileIdle(true);
+        poolConfig.setMinEvictableIdleTimeMillis(60000);
 
         // === Jedis Client Config with SSL ===
         HostAndPort hostAndPort = new HostAndPort(redisHost, redisPort);
@@ -63,6 +63,19 @@ public class RedisMutualSSLConfig {
                 .build();
 
         // === Create JedisPool ===
-        return new JedisPool(poolConfig, hostAndPort, clientConfig);
+        JedisPool pool = new JedisPool(poolConfig, hostAndPort, clientConfig);
+
+        // === Test connection ===
+        try (Jedis jedis = pool.getResource()) {
+            String response = jedis.ping();
+            if (!"PONG".equalsIgnoreCase(response)) {
+                throw new RuntimeException("Failed to connect to Redis: PING response = " + response);
+            }
+        } catch (Exception ex) {
+            pool.close(); // Close pool if connection fails
+            throw new RuntimeException("Unable to establish Redis connection", ex);
+        }
+
+        return pool;
     }
 }
