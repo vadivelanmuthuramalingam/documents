@@ -1,0 +1,236 @@
+{
+  "fieldMappings": {
+    "cardNumber": {
+      "source": "visa_number",
+      "type": "String"
+    },
+    "transaction.amount": {
+      "source": "txn.total_amount",
+      "type": "Long"
+    },
+    "transaction.currency": {
+      "source": "txn.currency",
+      "type": "String"
+    },
+    "items": {
+      "source": "items",
+      "type": "List<Item>"
+    },
+    "items[].itemName": {
+      "source": "items[].name",
+      "type": "String"
+    },
+    "items[].itemPrice": {
+      "source": "items[].price",
+      "type": "Double"
+    },
+    "items[].itemDetails": {
+      "source": "items[].details",
+      "type": "List<ItemDetail>"
+    },
+    "items[].itemDetails[].detailName": {
+      "source": "items[].details[].detailName",
+      "type": "String"
+    },
+    "items[].itemDetails[].detailValue": {
+      "source": "items[].details[].detailValue",
+      "type": "String"
+    }
+  }
+}
+
+
+
+
+
+package model;
+
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.node.*;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
+
+// --- Model Classes ---
+class PaymentRequest {
+    private String cardNumber;
+    private TransactionInfo transaction;
+    private List<Item> items;
+    private Map<String, Object> extraFields;
+
+    // Getters and Setters
+    public String getCardNumber() { return cardNumber; }
+    public void setCardNumber(String cardNumber) { this.cardNumber = cardNumber; }
+
+    public TransactionInfo getTransaction() { return transaction; }
+    public void setTransaction(TransactionInfo transaction) { this.transaction = transaction; }
+
+    public List<Item> getItems() { return items; }
+    public void setItems(List<Item> items) { this.items = items; }
+
+    public Map<String, Object> getExtraFields() { return extraFields; }
+    public void setExtraFields(Map<String, Object> extraFields) { this.extraFields = extraFields; }
+}
+
+class TransactionInfo {
+    private Long amount;
+    private String currency;
+
+    public Long getAmount() { return amount; }
+    public void setAmount(Long amount) { this.amount = amount; }
+
+    public String getCurrency() { return currency; }
+    public void setCurrency(String currency) { this.currency = currency; }
+}
+
+class Item {
+    private String itemName;
+    private Double itemPrice;
+    private List<ItemDetail> itemDetails;
+
+    public String getItemName() { return itemName; }
+    public void setItemName(String itemName) { this.itemName = itemName; }
+
+    public Double getItemPrice() { return itemPrice; }
+    public void setItemPrice(Double itemPrice) { this.itemPrice = itemPrice; }
+
+    public List<ItemDetail> getItemDetails() { return itemDetails; }
+    public void setItemDetails(List<ItemDetail> itemDetails) { this.itemDetails = itemDetails; }
+}
+
+class ItemDetail {
+    private String detailName;
+    private String detailValue;
+
+    public String getDetailName() { return detailName; }
+    public void setDetailName(String detailName) { this.detailName = detailName; }
+
+    public String getDetailValue() { return detailValue; }
+    public void setDetailValue(String detailValue) { this.detailValue = detailValue; }
+}
+
+// --- Mapper Class ---
+class DynamicJsonToPojoMapper {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public <T> T map(String inputJson, String mappingConfigJson, Class<T> targetClass, Map<String, Object> additionalFields) {
+        try {
+            JsonNode source = objectMapper.readTree(inputJson);
+            JsonNode mappingConfig = objectMapper.readTree(mappingConfigJson);
+
+            ObjectNode resultNode = objectMapper.createObjectNode();
+            JsonNode fieldMappings = mappingConfig.path("fieldMappings");
+
+            for (Iterator<Map.Entry<String, JsonNode>> it = fieldMappings.fields(); it.hasNext(); ) {
+                Map.Entry<String, JsonNode> entry = it.next();
+                String targetPath = entry.getKey();
+                String sourcePath = entry.getValue().path("source").asText();
+                String targetType = entry.getValue().path("type").asText("String");
+
+                JsonNode sourceValue = extractValue(source, sourcePath);
+                JsonNode castedValue = castValue(sourceValue, targetType);
+
+                setValue(resultNode, targetPath, castedValue);
+            }
+
+            if (additionalFields != null) {
+                ObjectNode extras = objectMapper.convertValue(additionalFields, ObjectNode.class);
+                resultNode.set("extraFields", extras);
+            }
+
+            return objectMapper.treeToValue(resultNode, targetClass);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Mapping failed: " + e.getMessage(), e);
+        }
+    }
+
+    private JsonNode extractValue(JsonNode source, String path) {
+        String[] parts = path.split("\\.");
+        JsonNode current = source;
+        for (String part : parts) {
+            current = current.path(part.replace("[]", ""));
+        }
+        return current;
+    }
+
+    private JsonNode castValue(JsonNode value, String targetType) {
+        switch (targetType.toLowerCase()) {
+            case "int": return new IntNode(value.asInt());
+            case "long": return new LongNode(value.asLong());
+            case "double": return new DoubleNode(value.asDouble());
+            case "boolean": return BooleanNode.valueOf(value.asBoolean());
+            case "string":
+            default: return new TextNode(value.asText());
+        }
+    }
+
+    private void setValue(ObjectNode node, String path, JsonNode value) {
+        String[] parts = path.split("\\.");
+        ObjectNode current = node;
+        for (int i = 0; i < parts.length - 1; i++) {
+            current = (ObjectNode) current.computeIfAbsent(parts[i].replace("[]", ""), k -> objectMapper.createObjectNode());
+        }
+        current.set(parts[parts.length - 1].replace("[]", ""), value);
+    }
+}
+
+// --- Mapping Loader ---
+class MappingLoader {
+    public static String load(String mappingName) throws IOException {
+        return new String(Files.readAllBytes(Paths.get("src/main/resources/mappings/" + mappingName)));
+    }
+}
+
+// --- Test Runner ---
+public class TestRunner {
+    public static void main(String[] args) throws Exception {
+        String inputJson = """
+        {
+          "visa_number": "4111-1111-1111-1111",
+          "txn": {
+            "total_amount": "100",
+            "currency": "USD"
+          },
+          "items": [
+            {
+              "name": "Item1",
+              "price": "10.5",
+              "details": [
+                { "detailName": "Color", "detailValue": "Red" },
+                { "detailName": "Size", "detailValue": "M" }
+              ]
+            },
+            {
+              "name": "Item2",
+              "price": "89.5",
+              "details": [
+                { "detailName": "Color", "detailValue": "Blue" }
+              ]
+            }
+          ]
+        }
+        """;
+
+        String configJson = MappingLoader.load("visa-payment-mapping.json");
+
+        DynamicJsonToPojoMapper mapper = new DynamicJsonToPojoMapper();
+        Map<String, Object> extras = new HashMap<>();
+        extras.put("sourceSystem", "VISA");
+
+        PaymentRequest result = mapper.map(inputJson, configJson, PaymentRequest.class, extras);
+
+        System.out.println("Card Number: " + result.getCardNumber());
+        System.out.println("Amount: " + result.getTransaction().getAmount());
+        System.out.println("Currency: " + result.getTransaction().getCurrency());
+        System.out.println("Items: " + result.getItems().size());
+        for (Item item : result.getItems()) {
+            System.out.println("  Item: " + item.getItemName() + ", Price: " + item.getItemPrice());
+            for (ItemDetail detail : item.getItemDetails()) {
+                System.out.println("    Detail: " + detail.getDetailName() + " = " + detail.getDetailValue());
+            }
+        }
+    }
+}
