@@ -1,3 +1,11 @@
+@GetMapping("/resource/{id:[a-zA-Z0-9_-]+}")
+public ResponseEntity<String> getResourceById(@PathVariable String id) {
+    return ResponseEntity.ok("ID: " + id);
+}
+
+
+
+
 @RestController
 public class ResourceController {
 
