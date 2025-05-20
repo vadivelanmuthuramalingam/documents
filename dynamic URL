@@ -1,0 +1,38 @@
+@RestController
+public class ResourceController {
+
+    @GetMapping("/resource/{version:v\\d+(\\.\\d+)?(-[a-zA-Z0-9]+)?}/{*path}")
+    public ResponseEntity<String> handleResource(
+            @PathVariable String version,
+            @PathVariable("path") String path) {
+
+        return ResponseEntity.ok("Version: " + version + ", Path: " + path);
+    }
+}
+
+
+
+
+@RestController
+public class ResourceController {
+
+    @GetMapping("/resource/{version}/**")
+    public ResponseEntity<String> handleResource(
+            @PathVariable String version,
+            HttpServletRequest request) {
+
+        // Validate the version using regex
+        if (!version.matches("v\\d+(\\.\\d+)?(-[a-zA-Z0-9]+)?")) {
+            return ResponseEntity.badRequest().body("Invalid version format");
+        }
+
+        // Extract the remaining path after /resource/{version}/
+        String fullPath = request.getRequestURI();
+        String basePath = "/resource/" + version + "/";
+        String optionalPath = fullPath.length() > basePath.length()
+                ? fullPath.substring(basePath.length())
+                : ""; // If there's no extra path
+
+        return ResponseEntity.ok("Version: " + version + ", Path: " + optionalPath);
+    }
+}
