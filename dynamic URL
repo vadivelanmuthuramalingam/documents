@@ -1,3 +1,33 @@
+spring.mvc.pathmatch.matching-strategy: path_pattern_parser
+
+
+
+@RestController
+@RequestMapping("/resource")
+public class ResourceController {
+
+    @GetMapping("/{version:v\\d+(\\.\\d+)?(-[a-zA-Z0-9]+)?}/**")
+    public ResponseEntity<String> handleVersionedResource(
+            @PathVariable String version,
+            HttpServletRequest request) {
+
+        String uri = request.getRequestURI(); // e.g., /resource/v1.0.1/foo/bar
+        String prefix = "/resource/" + version + "/";
+        String remainingPath = uri.length() > prefix.length() ? uri.substring(prefix.length()) : "";
+
+        return ResponseEntity.ok("Version: " + version + ", Path: " + remainingPath);
+    }
+
+    @GetMapping("/**")
+    public ResponseEntity<String> handleUnversioned(HttpServletRequest request) {
+        String uri = request.getRequestURI(); // e.g., /resource/foo/bar
+        String remaining = uri.substring("/resource/".length());
+        return ResponseEntity.ok("Unversioned path: " + remaining);
+    }
+}
+
+
+
 @GetMapping("/resource/{id:[a-zA-Z0-9_-]+}")
 public ResponseEntity<String> getResourceById(@PathVariable String id) {
     return ResponseEntity.ok("ID: " + id);
