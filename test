@@ -1,0 +1,6 @@
+Feature	Description
+High Availability	RDQM runs on three Linux servers and ensures queue manager availability even if one server fails.
+Synchronous Replication	Queue manager data is replicated in real time across the nodes.
+Failover Support	If the active node fails, one of the standby nodes takes over automatically.
+Disaster Recovery (DR) Option	Supports asynchronous replication to a DR site (optional configuration).
+No Shared Storage Required	Uses local disks on each node instead of SAN/NFS.
