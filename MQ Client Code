@@ -1,0 +1,181 @@
+ibm:
+  mq:
+    queueManagers:
+      qm1:
+        host: mq-host1
+        port: 1414
+        channel: CHANNEL1
+        queueManager: QMGR1
+        user: app
+        password: pass
+        queues:
+          - QUEUE.A
+      qm2:
+        host: mq-host2
+        port: 1414
+        channel: CHANNEL2
+        queueManager: QMGR2
+        user: app2
+        password: pass2
+        queues:
+          - QUEUE.X
+
+
+
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "ibm.mq")
+public class IbmMqProperties {
+    private Map<String, QueueManagerConfig> queueManagers = new HashMap<>();
+
+    @Data
+    public static class QueueManagerConfig {
+        private String host;
+        private int port;
+        private String channel;
+        private String queueManager;
+        private String user;
+        private String password;
+        private List<String> queues;
+    }
+}
+
+
+
+
+public class JmsInfrastructure {
+
+    private final ConnectionFactory connectionFactory;
+    private final JmsTemplate jmsTemplate;
+    private final DefaultJmsListenerContainerFactory listenerFactory;
+
+    public JmsInfrastructure(IbmMqProperties.QueueManagerConfig config) {
+        MQConnectionFactory mqFactory = new MQConnectionFactory();
+        try {
+            mqFactory.setHostName(config.getHost());
+            mqFactory.setPort(config.getPort());
+            mqFactory.setQueueManager(config.getQueueManager());
+            mqFactory.setChannel(config.getChannel());
+            mqFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
+        } catch (JMSException e) {
+            throw new RuntimeException(e);
+        }
+
+        this.connectionFactory = new CachingConnectionFactory(mqFactory);
+        this.jmsTemplate = new JmsTemplate(this.connectionFactory);
+
+        this.listenerFactory = new DefaultJmsListenerContainerFactory();
+        this.listenerFactory.setConnectionFactory(this.connectionFactory);
+        this.listenerFactory.setConcurrency("3-10");
+    }
+
+    public JmsTemplate getJmsTemplate() {
+        return jmsTemplate;
+    }
+
+    public DefaultJmsListenerContainerFactory getListenerFactory() {
+        return listenerFactory;
+    }
+
+    public void destroy() {
+        try {
+            ((CachingConnectionFactory) connectionFactory).destroy();
+        } catch (Exception ignored) {}
+    }
+}
+
+
+
+
+
+@Component
+public class MqRegistry {
+
+    private final Map<String, JmsInfrastructure> infrastructures = new ConcurrentHashMap<>();
+
+    public void register(String qmName, JmsInfrastructure infra) {
+        infrastructures.put(qmName, infra);
+    }
+
+    public JmsTemplate getJmsTemplate(String qmName) {
+        return infrastructures.get(qmName).getJmsTemplate();
+    }
+
+    public DefaultJmsListenerContainerFactory getListenerFactory(String qmName) {
+        return infrastructures.get(qmName).getListenerFactory();
+    }
+
+    public void closeAll() {
+        infrastructures.values().forEach(JmsInfrastructure::destroy);
+        infrastructures.clear();
+    }
+}
+
+
+
+
+
+@Component
+public class MqInitializer {
+
+    private final IbmMqProperties properties;
+    private final MqRegistry registry;
+    private final JmsListenerEndpointRegistry listenerEndpointRegistry;
+    private final JmsListenerContainerFactoryConfigurer configurer;
+
+    public MqInitializer(IbmMqProperties props,
+                         MqRegistry registry,
+                         JmsListenerEndpointRegistry endpointRegistry,
+                         JmsListenerContainerFactoryConfigurer configurer) {
+        this.properties = props;
+        this.registry = registry;
+        this.listenerEndpointRegistry = endpointRegistry;
+        this.configurer = configurer;
+    }
+
+    @PostConstruct
+    public void init() {
+        properties.getQueueManagers().forEach((qmName, qmConfig) -> {
+            JmsInfrastructure infra = new JmsInfrastructure(qmConfig);
+            registry.register(qmName, infra);
+
+            for (String queue : qmConfig.getQueues()) {
+                SimpleJmsListenerEndpoint endpoint = new SimpleJmsListenerEndpoint();
+                endpoint.setId(qmName + "-" + queue);
+                endpoint.setDestination(queue);
+                endpoint.setMessageListener(message -> {
+                    if (message instanceof TextMessage textMsg) {
+                        try {
+                            System.out.printf("Received on %s/%s: %s%n", qmName, queue, textMsg.getText());
+                        } catch (JMSException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                });
+                listenerEndpointRegistry.registerListenerContainer(endpoint, infra.getListenerFactory(), true);
+            }
+        });
+    }
+}
+
+
+
+
+@Service
+public class MessageSender {
+
+    private final MqRegistry registry;
+
+    public MessageSender(MqRegistry registry) {
+        this.registry = registry;
+    }
+
+    public void send(String qmName, String queue, String message) {
+        JmsTemplate template = registry.getJmsTemplate(qmName);
+        if (template == null) throw new IllegalArgumentException("Invalid QM: " + qmName);
+        template.convertAndSend(queue, message);
+    }
+}
+
+
