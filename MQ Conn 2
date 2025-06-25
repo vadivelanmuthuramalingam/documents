@@ -1,0 +1,259 @@
+// File: application.yml
+ibm:
+  mq:
+    queueManagers:
+      qm1:
+        hostnames:
+          - mq-host1:1414
+          - mq-host2:1414
+        channel: CHANNEL1
+        queueManager: QMGR1
+        user: app
+        password: pass
+        queues:
+          - QUEUE.A
+
+---
+
+// File: IbmMqProperties.java
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "ibm.mq")
+public class IbmMqProperties {
+    private Map<String, QueueManagerConfig> queueManagers = new HashMap<>();
+
+    @Data
+    public static class QueueManagerConfig {
+        private List<String> hostnames;
+        private String channel;
+        private String queueManager;
+        private String user;
+        private String password;
+        private List<String> queues;
+    }
+}
+
+---
+
+// File: JmsInfrastructure.java
+import com.ibm.msg.client.wmq.WMQConstants;
+import com.ibm.mq.jms.MQConnectionFactory;
+import jakarta.jms.ConnectionFactory;
+import jakarta.jms.JMSException;
+import org.springframework.jms.connection.CachingConnectionFactory;
+import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.core.JmsTemplate;
+
+import java.util.stream.Collectors;
+
+public class JmsInfrastructure {
+
+    private final ConnectionFactory connectionFactory;
+    private final JmsTemplate jmsTemplate;
+    private final DefaultJmsListenerContainerFactory listenerFactory;
+
+    public JmsInfrastructure(IbmMqProperties.QueueManagerConfig config) {
+        MQConnectionFactory mqFactory = new MQConnectionFactory();
+        try {
+            String connectionNameList = config.getHostnames().stream()
+                    .map(String::trim)
+                    .collect(Collectors.joining(","));
+
+            mqFactory.setConnectionNameList(connectionNameList);
+            mqFactory.setQueueManager(config.getQueueManager());
+            mqFactory.setChannel(config.getChannel());
+            mqFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
+
+            mqFactory.setClientReconnectOptions(WMQConstants.WMQ_CLIENT_RECONNECT_Q_MGR);
+            mqFactory.setClientReconnectTimeout(60);
+
+            if (config.getUser() != null) {
+                mqFactory.setStringProperty(WMQConstants.USERID, config.getUser());
+            }
+            if (config.getPassword() != null) {
+                mqFactory.setStringProperty(WMQConstants.PASSWORD, config.getPassword());
+            }
+
+        } catch (JMSException e) {
+            throw new RuntimeException("Error creating MQConnectionFactory", e);
+        }
+
+        this.connectionFactory = new CachingConnectionFactory(mqFactory);
+        this.jmsTemplate = new JmsTemplate(this.connectionFactory);
+
+        this.listenerFactory = new DefaultJmsListenerContainerFactory();
+        this.listenerFactory.setConnectionFactory(this.connectionFactory);
+        this.listenerFactory.setConcurrency("3-10");
+        this.listenerFactory.setRecoveryInterval(5000); // Retry delay: 5 seconds
+        this.listenerFactory.setErrorHandler(t ->
+            System.err.println("Listener error: " + t.getMessage())
+        );
+    }
+
+    public JmsTemplate getJmsTemplate() {
+        return jmsTemplate;
+    }
+
+    public DefaultJmsListenerContainerFactory getListenerFactory() {
+        return listenerFactory;
+    }
+
+    public void destroy() {
+        try {
+            ((CachingConnectionFactory) connectionFactory).destroy();
+        } catch (Exception ignored) {}
+    }
+}
+
+---
+
+// File: MqRegistry.java
+import org.springframework.jms.config.DefaultJmsListenerContainerFactory;
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Component
+public class MqRegistry {
+
+    private final Map<String, JmsInfrastructure> infrastructures = new ConcurrentHashMap<>();
+
+    public void register(String qmName, JmsInfrastructure infra) {
+        infrastructures.put(qmName, infra);
+    }
+
+    public JmsTemplate getJmsTemplate(String qmName) {
+        return infrastructures.get(qmName).getJmsTemplate();
+    }
+
+    public DefaultJmsListenerContainerFactory getListenerFactory(String qmName) {
+        return infrastructures.get(qmName).getListenerFactory();
+    }
+
+    public void closeAll() {
+        infrastructures.values().forEach(JmsInfrastructure::destroy);
+        infrastructures.clear();
+    }
+}
+
+---
+
+// File: MqInitializer.java
+import jakarta.annotation.PostConstruct;
+import jakarta.jms.JMSException;
+import jakarta.jms.Message;
+import jakarta.jms.TextMessage;
+import org.springframework.jms.config.JmsListenerContainerFactoryConfigurer;
+import org.springframework.jms.config.JmsListenerEndpointRegistry;
+import org.springframework.jms.config.SimpleJmsListenerEndpoint;
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Component
+public class MqInitializer {
+
+    private final IbmMqProperties properties;
+    private final MqRegistry registry;
+    private final JmsListenerEndpointRegistry listenerEndpointRegistry;
+    private final JmsListenerContainerFactoryConfigurer configurer;
+
+    public MqInitializer(IbmMqProperties props,
+                         MqRegistry registry,
+                         JmsListenerEndpointRegistry endpointRegistry,
+                         JmsListenerContainerFactoryConfigurer configurer) {
+        this.properties = props;
+        this.registry = registry;
+        this.listenerEndpointRegistry = endpointRegistry;
+        this.configurer = configurer;
+    }
+
+    @PostConstruct
+    public void init() {
+        properties.getQueueManagers().forEach((qmName, qmConfig) -> {
+            JmsInfrastructure infra = new JmsInfrastructure(qmConfig);
+            registry.register(qmName, infra);
+
+            for (String queue : qmConfig.getQueues()) {
+                SimpleJmsListenerEndpoint endpoint = new SimpleJmsListenerEndpoint();
+                endpoint.setId(qmName + "-" + queue);
+                endpoint.setDestination(queue);
+
+                endpoint.setMessageListener(message -> {
+                    int maxRetries = 5;
+                    int retryDelayMillis = 5000;
+                    AtomicInteger attempt = new AtomicInteger(1);
+
+                    while (attempt.get() <= maxRetries) {
+                        try {
+                            if (message instanceof TextMessage textMsg) {
+                                System.out.printf("[Attempt %d] Received from %s/%s: %s%n",
+                                        attempt.get(), qmName, queue, textMsg.getText());
+                                break;
+                            }
+                        } catch (JMSException e) {
+                            System.err.printf("Attempt %d failed for %s/%s: %s%n",
+                                    attempt.get(), qmName, queue, e.getMessage());
+                            attempt.incrementAndGet();
+                            try {
+                                Thread.sleep(retryDelayMillis);
+                            } catch (InterruptedException ignored) {}
+                        }
+                    }
+
+                    if (attempt.get() > maxRetries) {
+                        System.err.printf("Final failure after %d attempts on %s/%s%n",
+                                maxRetries, qmName, queue);
+                    }
+                });
+
+                listenerEndpointRegistry.registerListenerContainer(endpoint, infra.getListenerFactory(), true);
+            }
+        });
+    }
+}
+
+---
+
+// File: MessageSender.java
+import org.springframework.jms.core.JmsTemplate;
+import org.springframework.stereotype.Service;
+
+@Service
+public class MessageSender {
+
+    private final MqRegistry registry;
+
+    public MessageSender(MqRegistry registry) {
+        this.registry = registry;
+    }
+
+    public void send(String qmName, String queue, String message) {
+        JmsTemplate template = registry.getJmsTemplate(qmName);
+        if (template == null) throw new IllegalArgumentException("Invalid QM: " + qmName);
+        template.convertAndSend(queue, message);
+    }
+}
+
+---
+
+// File: MqApplication.java
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class MqApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MqApplication.class, args);
+    }
+}
