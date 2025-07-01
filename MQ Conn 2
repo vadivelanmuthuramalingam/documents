@@ -1,3 +1,76 @@
+ibm:
+  mq:
+    consumers:
+      qm1:
+        - queueName: listen1
+          binderName: name11
+      qm2:
+        - queueName: listen2
+          binderName: name11 asdas
+
+    binders:
+      Qm1:
+        hostname: host1
+        port: 1414
+        userId: user1
+        password: pass1
+        additionalProperties:
+          property1: value1
+          property2: value2
+      Qm2:
+        hostname: host2
+        port: 1414
+        userId: user2
+        password: pass2
+        additionalProperties:
+          property1: value3
+          property2: value4
+
+
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "ibm.mq")
+public class IbmMqConfigProperties {
+
+    /**
+     * Maps each QM name (e.g., qm1) to a list of ConsumerConfig.
+     * From ibm.mq.consumers
+     */
+    private Map<String, List<ConsumerConfig>> consumers = new HashMap<>();
+
+    /**
+     * Maps each QM name (e.g., Qm1) to its binder connection details.
+     * From ibm.mq.binders
+     */
+    private Map<String, BinderConfig> binders = new HashMap<>();
+
+    @Data
+    public static class ConsumerConfig {
+        private String queueName;
+        private String binderName;
+    }
+
+    @Data
+    public static class BinderConfig {
+        private String hostname;
+        private int port;
+        private String userId;
+        private String password;
+        private Map<String, String> additionalProperties = new HashMap<>();
+    }
+}
+
+
+
 <dependencies>
     <dependency>
         <groupId>org.springframework.boot</groupId>
