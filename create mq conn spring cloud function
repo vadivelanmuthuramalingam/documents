@@ -1,0 +1,302 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>ibm-mq-cloudstream</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+    </parent>
+
+    <properties>
+        <java.version>17</java.version>
+        <spring-cloud.version>2023.0.1</spring-cloud.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream-binder-jms</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.ibm.mq</groupId>
+            <artifactId>com.ibm.mq.allclient</artifactId>
+            <version>9.3.3.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>jakarta.jms</groupId>
+            <artifactId>jakarta.jms-api</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+    </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+</project>
+
+
+
+
+
+
+spring:
+  cloud:
+    stream:
+      bindings:
+        queue1-in-0:
+          destination: QUEUE.A
+          binder: qm1
+          consumer:
+            concurrency: 5
+        queue2-in-0:
+          destination: QUEUE.B
+          binder: qm1
+          consumer:
+            concurrency: 2
+        queue3-in-0:
+          destination: QUEUE.X
+          binder: qm2
+          consumer:
+            concurrency: 3
+        queue4-in-0:
+          destination: QUEUE.Y
+          binder: qm2
+          consumer:
+            concurrency: 1
+        queue5-in-0:
+          destination: QUEUE.Z
+          binder: qm2
+          consumer:
+            concurrency: 1
+
+      jms:
+        binders:
+          qm1:
+            type: jms
+            environment:
+              spring:
+                jms:
+                  connectionFactory: qm1ConnectionFactory
+          qm2:
+            type: jms
+            environment:
+              spring:
+                jms:
+                  connectionFactory: qm2ConnectionFactory
+
+ibm:
+  mq:
+    queueManagers:
+      qm1:
+        hostnames:
+          - mq-host1:1414
+        channel: CHANNEL1
+        queueManager: QMGR1
+        user: app
+        password: pass
+      qm2:
+        hostnames:
+          - mq-host2:1414
+        channel: CHANNEL2
+        queueManager: QMGR2
+        user: app2
+        password: pass2
+
+
+
+
+
+import lombok.Data;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+@Data
+@Configuration
+@ConfigurationProperties(prefix = "ibm.mq")
+public class IbmMqProperties {
+    private Map<String, QueueManagerConfig> queueManagers = new HashMap<>();
+
+    @Data
+    public static class QueueManagerConfig {
+        private List<String> hostnames;
+        private String channel;
+        private String queueManager;
+        private String user;
+        private String password;
+    }
+}
+
+
+
+import com.ibm.mq.jms.MQConnectionFactory;
+import com.ibm.msg.client.wmq.WMQConstants;
+import jakarta.jms.JMSException;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableConfigurationProperties(IbmMqProperties.class)
+public class DynamicMqConnectionFactoryRegistrar implements BeanDefinitionRegistryPostProcessor {
+
+    private final IbmMqProperties mqProperties;
+
+    public DynamicMqConnectionFactoryRegistrar(IbmMqProperties mqProperties) {
+        this.mqProperties = mqProperties;
+    }
+
+    @Override
+    public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) throws BeansException {
+        mqProperties.getQueueManagers().forEach((qmName, config) -> {
+            try {
+                MQConnectionFactory mqFactory = new MQConnectionFactory();
+                String connectionNameList = String.join(",", config.getHostnames());
+                mqFactory.setConnectionNameList(connectionNameList);
+                mqFactory.setQueueManager(config.getQueueManager());
+                mqFactory.setChannel(config.getChannel());
+                mqFactory.setTransportType(WMQConstants.WMQ_CM_CLIENT);
+                mqFactory.setClientReconnectOptions(WMQConstants.WMQ_CLIENT_RECONNECT_Q_MGR);
+                mqFactory.setClientReconnectTimeout(60);
+
+                if (config.getUser() != null) {
+                    mqFactory.setStringProperty(WMQConstants.USERID, config.getUser());
+                }
+                if (config.getPassword() != null) {
+                    mqFactory.setStringProperty(WMQConstants.PASSWORD, config.getPassword());
+                }
+
+                BeanDefinition beanDefinition = BeanDefinitionBuilder
+                        .genericBeanDefinition(MQConnectionFactory.class, () -> mqFactory)
+                        .getBeanDefinition();
+
+                registry.registerBeanDefinition(qmName + "ConnectionFactory", beanDefinition);
+
+                System.out.printf("Registered ConnectionFactory bean: %sConnectionFactory%n", qmName);
+            } catch (JMSException e) {
+                throw new RuntimeException("Failed to create ConnectionFactory for " + qmName, e);
+            }
+        });
+    }
+
+    @Override
+    public void postProcessBeanFactory(org.springframework.beans.factory.config.ConfigurableListableBeanFactory beanFactory) throws BeansException {
+        // nothing to do
+    }
+}
+
+
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.Message;
+
+import java.util.function.Consumer;
+
+@Configuration
+public class MyMqConsumers {
+
+    @Bean
+    public Consumer<Message<String>> queue1() {
+        return msg -> System.out.printf("[QUEUE.A] Received: %s%n", msg.getPayload());
+    }
+
+    @Bean
+    public Consumer<Message<String>> queue2() {
+        return msg -> System.out.printf("[QUEUE.B] Received: %s%n", msg.getPayload());
+    }
+
+    @Bean
+    public Consumer<Message<String>> queue3() {
+        return msg -> System.out.printf("[QUEUE.X] Received: %s%n", msg.getPayload());
+    }
+
+    @Bean
+    public Consumer<Message<String>> queue4() {
+        return msg -> System.out.printf("[QUEUE.Y] Received: %s%n", msg.getPayload());
+    }
+
+    @Bean
+    public Consumer<Message<String>> queue5() {
+        return msg -> System.out.printf("[QUEUE.Z] Received: %s%n", msg.getPayload());
+    }
+}
+
+
+
+
+import org.springframework.beans.factory.ListableBeanFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.cloud.stream.config.BindingServiceProperties;
+import org.springframework.context.ApplicationListener;
+import org.springframework.stereotype.Component;
+
+@Component
+public class ConsumerFunctionValidator implements ApplicationListener<ApplicationReadyEvent> {
+
+    private final ListableBeanFactory beanFactory;
+    private final BindingServiceProperties bindingProps;
+
+    public ConsumerFunctionValidator(ListableBeanFactory beanFactory, BindingServiceProperties bindingProps) {
+        this.beanFactory = beanFactory;
+        this.bindingProps = bindingProps;
+    }
+
+    @Override
+    public void onApplicationEvent(ApplicationReadyEvent event) {
+        bindingProps.getBindings().forEach((bindingName, bindingProperties) -> {
+            String functionName = bindingName.split("-in-")[0];
+            if (!beanFactory.containsBean(functionName)) {
+                throw new IllegalStateException("Invalid consumer binding: '" + bindingName
+                        + "' expects a bean named '" + functionName + "', but none was found!");
+            }
+            System.out.printf("Validated consumer binding: '%s' -> bean '%s'%n", bindingName, functionName);
+        });
+    }
+}
+
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class MqApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(MqApplication.class, args);
+    }
+}
