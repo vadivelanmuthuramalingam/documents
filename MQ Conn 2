@@ -1,3 +1,78 @@
+IBM:
+  queuemanages:
+    enabled: true
+    consumers:
+      funcxResponseName:
+        queuename: someQueue
+        clientID: someClientId
+        isManualAck: true
+        bindername: emeaNam
+      anotherFuncName:
+        queuename: anotherQueue
+        clientID: anotherClientId
+        isManualAck: true
+        bindername: qmNam
+    binders:
+      qmNam:
+        property1: value1
+        property2: value2
+        property3: value3
+      emeaNam:
+        property1: value4
+        property2: value5
+        property3: value6
+
+
+import lombok.Data;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Data
+@Configuration
+@ConditionalOnProperty(prefix = "ibm.queuemanages", name = "enabled", havingValue = "true")
+@ConfigurationProperties(prefix = "ibm.queuemanages")
+public class IbmQueueManagerProperties {
+
+    /**
+     * Enables the entire queue manager configuration when true.
+     * Bound from ibm.queuemanages.enabled
+     */
+    private boolean enabled;
+
+    /**
+     * Map of consumers, keyed by their functional name (e.g., funcxResponseName).
+     * Bound from ibm.queuemanages.consumers.*
+     */
+    private Map<String, ConsumerConfig> consumers = new HashMap<>();
+
+    /**
+     * Map of binders, keyed by their binder name (e.g., qmNam, emeaNam).
+     * Bound from ibm.queuemanages.binders.*
+     */
+    private Map<String, BinderConfig> binders = new HashMap<>();
+
+    @Data
+    public static class ConsumerConfig {
+        private String queuename;
+        private String clientID;
+        private boolean isManualAck;
+        private String bindername;
+    }
+
+    @Data
+    public static class BinderConfig {
+        private String property1;
+        private String property2;
+        private String property3;
+    }
+}
+
+
+
 ibm:
   mq:
     consumers:
