@@ -1,0 +1,35 @@
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.context.ApplicationListener;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.stereotype.Component;
+
+@Component
+public class BeanValidatorAfterContextRefresh implements ApplicationListener<ContextRefreshedEvent> {
+
+    private final BeanFactory beanFactory;
+    private final MyProperties properties;
+
+    public BeanValidatorAfterContextRefresh(BeanFactory beanFactory, MyProperties properties) {
+        this.beanFactory = beanFactory;
+        this.properties = properties;
+    }
+
+    @Override
+    public void onApplicationEvent(ContextRefreshedEvent event) {
+        boolean missingBean = false;
+        for (String beanName : properties.getRequiredBeans()) {
+            if (!beanFactory.containsBean(beanName)) {
+                System.err.printf("❌ ERROR: Required bean not found: '%s'%n", beanName);
+                missingBean = true;
+            } else {
+                System.out.printf("✅ Validated required bean exists: '%s'%n", beanName);
+            }
+        }
+
+        if (missingBean) {
+            System.err.println("🚨 One or more required beans are missing. Terminating application...");
+            // Gracefully shut down the application
+            System.exit(1);
+        }
+    }
+}
