@@ -1,0 +1,115 @@
+What consumes disk space in MQ
+1️⃣ Queue Manager logs (transaction logs):
+
+MQ’s recovery and durability rely on these logs.
+
+Logs grow with persistent messages and transactions.
+
+2️⃣ Queue files (persistent messages):
+
+Each queue holding persistent messages stores them on disk until consumed or expired.
+
+Transient/non-persistent messages don’t stay on disk.
+
+3️⃣ Configuration data (QMGR config, object definitions).
+
+📐 Disk space sizing considerations
+1️⃣ Persistent message volume
+Estimate peak queue depth × max message size for your busiest queue(s) to calculate potential disk usage for queue data.
+
+Example: If you expect up to 10,000 messages of 10KB → that’s ~100MB.
+
+2️⃣ Transaction logs
+Transaction logs are the biggest disk consumers for high-volume apps using persistent messages.
+
+Disk space required depends on:
+
+Number of log files (LogPrimaryFiles + LogSecondaryFiles) × size of each file (LogFilePages × 4KB/page).
+
+Number and duration of active transactions.
+
+🔎 Example:
+In qm.ini:
+
+makefile
+Copy
+Edit
+Log:
+   LogPrimaryFiles=15
+   LogSecondaryFiles=10
+   LogFilePages=16384
+Each log file: 16384 pages × 4KB = 64MB
+
+Total primary logs: 15 × 64MB = 960MB
+
+Total secondary logs: 10 × 64MB = 640MB
+
+So logs can grow up to ~1.6GB.
+
+3️⃣ Queue manager + configuration overhead
+Add ~500MB–1GB for queue manager object definitions and other metadata.
+
+✅ Recommended sizing formula
+Minimum disk space ≈
+
+scss
+Copy
+Edit
+(Max persistent messages × avg size)
++ (total primary + secondary logs)
++ (1GB buffer for QMGR config/metadata)
++ (30–50% overhead for growth/spikes)
+✅ Example calculation
+If:
+✅ Expect peak of 200,000 messages at 5KB → 1GB queue data.
+✅ Logs: ~2GB (from above example).
+✅ Add 1GB for config.
+✅ Add 50% overhead → ~2GB extra.
+
+Recommended disk space:
+1GB + 2GB + 1GB + 2GB overhead = 6GB minimum
+Realistically: allocate 10–20GB for production queue managers.
+
+✅ Additional tips for disk setup
+✅ Place MQ data directories (/var/mqm/qmgrs/) and log directories (/var/mqm/log/) on separate disks/partitions if possible → isolates logs from queue data and avoids one filling up the other.
+✅ Use fast disks (SSD/NVMe) for transaction logs → MQ’s performance for persistent messages is log-write bound.
+✅ Monitor disk usage proactively → set alerts before reaching 80% utilization.
+✅ Consider log archiving for older logs (if you enable circular logs, they won’t grow indefinitely; if linear, logs grow until archived).
+✅ In cloud environments → ensure your persistent volume supports IOPS/throughput requirements of your workload.
+
+🔎 Commands to check disk usage for MQ
+On your MQ server, run:
+
+bash
+Copy
+Edit
+df -h /var/mqm
+To check log directory usage:
+
+bash
+Copy
+Edit
+du -sh /var/mqm/log/*
+✅ Key MQ config files
+qm.ini: defines log settings.
+
+mqs.ini: system-wide config.
+
+MQ data: /var/mqm/qmgrs/<QMGR_NAME>/
+
+MQ logs: /var/mqm/log/<QMGR_NAME>/
+
+🚨 Important!
+If disk fills up:
+
+MQ stops accepting new persistent messages.
+
+Queue manager may fail or freeze.
+
+Must free disk space or remove messages to resume operation.
+
+🔥 TL;DR Recommended disk setup
+✅ For small/medium workloads → 10–20GB per queue manager
+✅ For high-throughput systems → plan 30–100GB or more depending on persistent message retention and expected queue depths.
+
+Would you like help tuning your qm.ini log settings or setting up disk space monitoring for MQ?
