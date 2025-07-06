@@ -202,3 +202,105 @@ try {
 } finally {
     DynamicRoutingDataSource.clear();
 }
+
+
+
+
+
+
+
+
+
+
+
+package com.example.dynamicdb.annotation;
+
+import java.lang.annotation.*;
+
+@Target({ElementType.METHOD, ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Inherited
+@Documented
+public @interface UseDataSource {
+    String value();
+}
+
+
+package com.example.dynamicdb.aspect;
+
+import com.example.dynamicdb.annotation.UseDataSource;
+import com.example.dynamicdb.datasource.DynamicRoutingDataSource;
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.*;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.springframework.core.annotation.AnnotationUtils;
+import org.springframework.stereotype.Component;
+
+@Slf4j
+@Aspect
+@Component
+public class DataSourceRoutingAspect {
+
+    @Around("@annotation(com.example.dynamicdb.annotation.UseDataSource) || @within(com.example.dynamicdb.annotation.UseDataSource)")
+    public Object routeDataSource(ProceedingJoinPoint joinPoint) throws Throwable {
+        String dbKey = resolveDbKey(joinPoint);
+
+        if (dbKey == null) {
+            log.debug("[DynamicDB] No @UseDataSource annotation found; using default datasource.");
+            return joinPoint.proceed();
+        }
+
+        try {
+            log.debug("[DynamicDB] Routing to datasource '{}'", dbKey);
+            DynamicRoutingDataSource.set(dbKey);
+            return joinPoint.proceed();
+        } finally {
+            DynamicRoutingDataSource.clear();
+        }
+    }
+
+    private String resolveDbKey(ProceedingJoinPoint joinPoint) {
+        MethodSignature signature = (MethodSignature) joinPoint.getSignature();
+
+        UseDataSource methodAnno = AnnotationUtils.findAnnotation(signature.getMethod(), UseDataSource.class);
+        if (methodAnno != null) {
+            return methodAnno.value();
+        }
+
+        UseDataSource classAnno = AnnotationUtils.findAnnotation(signature.getDeclaringType(), UseDataSource.class);
+        if (classAnno != null) {
+            return classAnno.value();
+        }
+
+        return null;
+    }
+}
+
+
+
+
+package com.example.dynamicdb.service;
+
+import com.example.dynamicdb.annotation.UseDataSource;
+import com.example.dynamicdb.entity.MyEntity;
+import com.example.dynamicdb.repository.MyEntityRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class MyService {
+
+    private final MyEntityRepository myEntityRepository;
+
+    @UseDataSource("oracleDb")
+    public void saveToOracle(MyEntity entity) {
+        myEntityRepository.save(entity);
+    }
+
+    @UseDataSource("mysqlDb")
+    public void saveToMySQL(MyEntity entity) {
+        myEntityRepository.save(entity);
+    }
+}
