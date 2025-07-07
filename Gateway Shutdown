@@ -1,0 +1,178 @@
+Absolutely! Below is a production-ready Spring Boot HTTP microservice example that:
+
+✅ Shuts down gracefully on SIGTERM   (SIGKILL will trigger from openshift if application is taking more time to stop the port)
+✅ Stops accepting new HTTP requests immediately
+✅ Logs a message when shutdown starts
+✅ Waits for ongoing requests to complete
+✅ Includes application.yml, pom.xml, Java source, and deployment.yaml
+
+
+<project xmlns="http://maven.apache.org/POM/4.0.0" 
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.example</groupId>
+  <artifactId>graceful-http-app</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+
+  <properties>
+    <java.version>17</java.version>
+    <spring.boot.version>3.2.5</spring.boot.version>
+  </properties>
+
+  <dependencies>
+    <!-- Spring Boot web -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Actuator for readiness/liveness -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+
+    <!-- Logging -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <!-- Spring Boot plugin -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <version>${spring.boot.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>repackage</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
+
+
+
+
+
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+
+
+
+package com.example;
+
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@SpringBootApplication
+public class GracefulHttpApp {
+    public static void main(String[] args) {
+        SpringApplication.run(GracefulHttpApp.class, args);
+    }
+}
+
+@RestController
+class HelloController {
+    @GetMapping("/hello")
+    public String hello() throws InterruptedException {
+        Thread.sleep(2000); // simulate processing
+        return "Hello from Spring Boot!";
+    }
+}
+
+@Component
+class GracefulShutdownLogger {
+
+    private static final Logger logger = LoggerFactory.getLogger(GracefulShutdownLogger.class);
+
+    @PreDestroy
+    public void onShutdown() {
+        logger.info("🚨 SIGTERM received → HTTP server is shutting down (port closed to new requests).");
+    }
+}
+
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graceful-http-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: graceful-http-app
+  template:
+    metadata:
+      labels:
+        app: graceful-http-app
+    spec:
+      terminationGracePeriodSeconds: 40  # Wait up to 40s before SIGKILL
+      containers:
+        - name: graceful-http-app
+          image: myregistry/graceful-http-app:1.0.0
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 5
+
+
+
+✅ Once deployed in OpenShift, this setup ensures:
+
+Pod receives SIGTERM → HTTP port closes immediately.
+
+App logs shutdown message.
+
+In-flight requests complete (up to 30s).
+
+App exits cleanly before Kubernetes sends SIGKILL.
+
