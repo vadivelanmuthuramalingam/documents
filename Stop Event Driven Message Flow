@@ -1,0 +1,98 @@
+package com.example.gracefulshutdown;
+
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cloud.stream.binder.BindingService;
+import org.springframework.cloud.stream.binder.ConsumerBinding;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.jms.listener.DefaultMessageListenerContainer;
+
+import javax.sql.DataSource;
+import java.sql.SQLException;
+import java.util.List;
+
+@Configuration
+public class GracefulShutdownManager {
+
+    private static final Logger logger = LoggerFactory.getLogger(GracefulShutdownManager.class);
+
+    private final BindingService bindingService;
+    private final DataSource dataSource;
+    private final List<DefaultMessageListenerContainer> mqListenerContainers;
+    private final RedisConnectionFactory redisConnectionFactory;
+
+    public GracefulShutdownManager(
+            BindingService bindingService,
+            DataSource dataSource,
+            List<DefaultMessageListenerContainer> mqListenerContainers,
+            RedisConnectionFactory redisConnectionFactory) {
+        this.bindingService = bindingService;
+        this.dataSource = dataSource;
+        this.mqListenerContainers = mqListenerContainers;
+        this.redisConnectionFactory = redisConnectionFactory;
+    }
+
+    @PreDestroy
+    public void onSigterm() {
+        logger.info("🚨 SIGTERM received — starting graceful shutdown...");
+
+        stopSolaceConsumers();
+        stopIbmmqListeners();
+        closeOracleConnection();
+        closeRedisConnection();
+
+        logger.info("✅ Graceful shutdown tasks completed. Exiting application.");
+    }
+
+    private void stopSolaceConsumers() {
+        logger.info("🛑 Stopping Solace consumers...");
+        try {
+            bindingService.getConsumerBindings()
+                .values()
+                .forEach(bindings -> bindings.forEach(binding -> {
+                    try {
+                        logger.info("Stopping Solace consumer binding: {}", binding.getName());
+                        binding.stop();
+                    } catch (Exception e) {
+                        logger.error("❌ Error stopping Solace consumer: {}", binding.getName(), e);
+                    }
+                }));
+        } catch (Exception ex) {
+            logger.error("❌ Error during Solace consumers shutdown", ex);
+        }
+    }
+
+    private void stopIbmmqListeners() {
+        logger.info("🛑 Stopping IBM MQ JMS listeners...");
+        for (DefaultMessageListenerContainer container : mqListenerContainers) {
+            try {
+                logger.info("Stopping JMS listener container: {}", container.getBeanName());
+                container.stop();
+            } catch (Exception e) {
+                logger.error("❌ Error stopping IBM MQ listener: {}", container.getBeanName(), e);
+            }
+        }
+    }
+
+    private void closeOracleConnection() {
+        logger.info("🛑 Closing Oracle DataSource...");
+        try {
+            dataSource.getConnection().close();
+            logger.info("✅ Oracle DataSource closed.");
+        } catch (SQLException e) {
+            logger.error("❌ Error closing Oracle DataSource", e);
+        }
+    }
+
+    private void closeRedisConnection() {
+        logger.info("🛑 Closing Redis connection...");
+        try {
+            redisConnectionFactory.getConnection().close();
+            logger.info("✅ Redis connection closed.");
+        } catch (Exception e) {
+            logger.error("❌ Error closing Redis connection", e);
+        }
+    }
+}
