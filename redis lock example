@@ -1,0 +1,85 @@
+import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
+import java.util.UUID;
+
+public class RedisLockHashService {
+
+    private final JedisPool jedisPool;
+    private static final int LOCK_EXPIRE_SECONDS = 10;
+
+    public RedisLockHashService(JedisPool jedisPool) {
+        this.jedisPool = jedisPool;
+    }
+
+    public void addIfNotExists(String lockKey, String hashKey, String field, String value) {
+        String lockValue = UUID.randomUUID().toString();
+
+        try (Jedis jedis = jedisPool.getResource()) {
+            // Try to acquire lock
+            boolean locked = tryLock(jedis, lockKey, lockValue, LOCK_EXPIRE_SECONDS);
+            if (!locked) {
+                throw new IllegalStateException("Could not acquire lock, another operation is in progress");
+            }
+
+            // Check if key already exists in hash
+            boolean fieldExists = jedis.hexists(hashKey, field);
+            if (fieldExists) {
+                throw new IllegalArgumentException("Field already exists in hash: " + field);
+            }
+
+            // Add new key-value to hash
+            jedis.hset(hashKey, field, value);
+
+        } finally {
+            // Always release the lock
+            try (Jedis jedis = jedisPool.getResource()) {
+                releaseLock(jedis, lockKey, lockValue);
+            }
+        }
+    }
+
+    private boolean tryLock(Jedis jedis, String lockKey, String lockValue, int expireSeconds) {
+        String result = jedis.set(lockKey, lockValue, "NX", "EX", expireSeconds);
+        return "OK".equals(result);
+    }
+
+    private void releaseLock(Jedis jedis, String lockKey, String lockValue) {
+        String currentValue = jedis.get(lockKey);
+        if (lockValue.equals(currentValue)) {
+            jedis.del(lockKey);
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+JedisPool jedisPool = new JedisPool("localhost", 6379);
+RedisLockHashService service = new RedisLockHashService(jedisPool);
+
+String lockKey = "lock:agg:data";
+String hashKey = "agg:data";
+
+try {
+    service.addIfNotExists(lockKey, hashKey, "user123", "amount:4500");
+    System.out.println("Field added successfully.");
+} catch (IllegalArgumentException e) {
+    System.err.println("Duplicate key error: " + e.getMessage());
+} catch (IllegalStateException e) {
+    System.err.println("Lock not acquired: " + e.getMessage());
+}
+
+
+
+
+
