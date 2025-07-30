@@ -1,0 +1,92 @@
+import org.apache.geode.cache.*;
+import org.apache.geode.distributed.DistributedLockService;
+import org.apache.geode.distributed.DistributedSystem;
+
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+public class GeodeHashMapConcurrencyExample {
+
+    private static final Logger logger = Logger.getLogger(GeodeHashMapConcurrencyExample.class.getName());
+
+    private final Cache cache;
+    private final Region<String, Map<String, String>> region;
+    private final DistributedLockService lockService;
+
+    public GeodeHashMapConcurrencyExample() {
+        Properties props = new Properties();
+        props.setProperty("name", "GeodeHashMapApp");
+        props.setProperty("mcast-port", "0");
+        props.setProperty("locators", "");
+
+        this.cache = new CacheFactory(props).create();
+        RegionFactory<String, Map<String, String>> regionFactory = cache.createRegionFactory(RegionShortcut.LOCAL);
+        this.region = regionFactory.create("hashRegion");
+
+        DistributedSystem ds = cache.getDistributedSystem();
+        this.lockService = DistributedLockService.create("hashLockService", ds);
+    }
+
+    public void updateMapEntrySafely(String key, String mapKey, String mapValue) {
+        boolean acquired = false;
+
+        try {
+            acquired = lockService.lock(key, 5000, 60000); // wait up to 5s, lease for 60s
+            if (!acquired) {
+                logger.warning("Could not acquire lock on: " + key);
+                return;
+            }
+
+            Map<String, String> valueMap = region.get(key);
+            if (valueMap == null) {
+                valueMap = new HashMap<>();
+            }
+
+            valueMap.put(mapKey, mapValue);
+            region.put(key, valueMap);
+
+            logger.info("Updated key [" + key + "] with [" + mapKey + "=" + mapValue + "]");
+        } catch (Exception e) {
+            logger.log(Level.SEVERE, "Error updating key: " + key, e);
+        } finally {
+            if (acquired) {
+                try {
+                    lockService.unlock(key);
+                } catch (Exception e) {
+                    logger.log(Level.SEVERE, "Error releasing lock for key: " + key, e);
+                }
+            }
+        }
+    }
+
+    public void shutdown() {
+        cache.close();
+    }
+
+    public static void main(String[] args) throws InterruptedException {
+        GeodeHashMapConcurrencyExample app = new GeodeHashMapConcurrencyExample();
+
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        String regionKey = "user:1001";
+
+        for (int i = 0; i < 10; i++) {
+            final int threadNum = i;
+            executor.submit(() -> {
+                String mapKey = "field" + threadNum;
+                String mapValue = "value" + threadNum;
+                app.updateMapEntrySafely(regionKey, mapKey, mapValue);
+            });
+        }
+
+        executor.shutdown();
+        executor.awaitTermination(10, TimeUnit.SECONDS);
+
+        // Print final state
+        Map<String, String> result = app.region.get(regionKey);
+        System.out.println("Final map in key [" + regionKey + "]: " + result);
+
+        app.shutdown();
+    }
+}
