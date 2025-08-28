@@ -1,0 +1,97 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>solace-queue-cleaner</artifactId>
+  <version>1.0.0</version>
+
+  <dependencies>
+    <!-- Solace JCSMP (Java API) -->
+    <dependency>
+      <groupId>com.solacesystems</groupId>
+      <artifactId>sol-jcsmp</artifactId>
+      <version>10.21.0</version> <!-- Or latest version -->
+    </dependency>
+    
+    <!-- Optional: Logging (for better log output) -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.9</version>
+    </dependency>
+  </dependencies>
+
+  <properties>
+    <maven.compiler.source>17</maven.compiler.source> <!-- or 11/1.8 -->
+    <maven.compiler.target>17</maven.compiler.target>
+  </properties>
+</project>
+
+
+
+
+
+    
+
+
+import com.solacesystems.jcsmp.*;
+
+public class SolaceQueueCleaner {
+
+    public static void main(String[] args) throws JCSMPException {
+        String host = "tcp://<solace-host>:55555";
+        String vpnName = "<vpn-name>";
+        String username = "<username>";
+        String password = "<password>";
+        String queueName = "<queue-name>";
+
+        // Set up connection properties
+        JCSMPProperties properties = new JCSMPProperties();
+        properties.setProperty(JCSMPProperties.HOST, host);
+        properties.setProperty(JCSMPProperties.VPN_NAME, vpnName);
+        properties.setProperty(JCSMPProperties.USERNAME, username);
+        properties.setProperty(JCSMPProperties.PASSWORD, password);
+        properties.setProperty(JCSMPProperties.RECONNECT_RETRIES, 3);
+
+        // Connect session
+        final JCSMPSession session = JCSMPFactory.onlyInstance().createSession(properties);
+        session.connect();
+
+        final Queue queue = JCSMPFactory.onlyInstance().createQueue(queueName);
+
+        // Set up consumer flow properties
+        ConsumerFlowProperties flowProps = new ConsumerFlowProperties();
+        flowProps.setEndpoint(queue);
+        flowProps.setAckMode(JCSMPProperties.SUPPORTED_ACK_CLIENT); // Use client ack for control
+        flowProps.setStartState(true);  // Start flow immediately
+
+        // Message Listener that just ACKs the messages
+        FlowReceiver flowReceiver = session.createFlow(null, flowProps, null);
+
+        System.out.println("Starting purge...");
+
+        int totalDeleted = 0;
+        while (true) {
+            BytesXMLMessage msg = flowReceiver.receive(1000); // timeout in ms
+            if (msg == null) {
+                break; // No more messages
+            }
+
+            msg.ackMessage(); // Acknowledge = Delete
+            totalDeleted++;
+
+            if (totalDeleted % 1000 == 0) {
+                System.out.println("Deleted: " + totalDeleted + " messages...");
+            }
+        }
+
+        System.out.println("Purge complete. Total deleted: " + totalDeleted);
+
+        // Cleanup
+        flowReceiver.close();
+        session.closeSession();
+    }
+}
