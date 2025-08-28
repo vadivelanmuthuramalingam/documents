@@ -1,0 +1,159 @@
+public class BusinessException extends RuntimeException {
+    public BusinessException(String message) {
+        super(message);
+    }
+}
+
+public class ValidationException extends RuntimeException {
+    public ValidationException(String message) {
+        super(message);
+    }
+}
+
+
+public interface PayloadMessageInterface {
+    boolean isError();
+    void setError(boolean isError);
+    void setErrorDetails(String message);
+    String getErrorDetails();
+}
+
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.stream.function.StreamBridge;
+import reactor.core.publisher.Mono;
+
+public abstract class AbstractBase {
+
+    @Autowired
+    private StreamBridge streamBridge;
+
+    protected Mono<Void> publishToChoreo(PayloadMessageInterface payload) {
+        return Mono.fromRunnable(() -> streamBridge.send("choreo-out-0", payload));
+    }
+
+    protected Mono<Void> publishToPlatform(PayloadMessageInterface payload) {
+        return Mono.fromRunnable(() -> streamBridge.send("platform-out-0", payload));
+    }
+}
+
+
+
+
+
+
+import org.springframework.messaging.Message;
+import reactor.core.publisher.Mono;
+
+public abstract class AbstractAtomic extends AbstractBase {
+
+    protected abstract Mono<PayloadMessageInterface> receive(Message<?> message);
+
+    protected abstract Mono<Void> connectDomainService(PayloadMessageInterface payload);
+
+    public Mono<Message<?>> doProcess(Message<?> message) {
+        return receive(message)
+            .flatMap(payload -> connectDomainService(payload)
+                .then(Mono.defer(() -> {
+                    if (payload.isError()) {
+                        return publishToPlatform(payload).thenReturn(message);
+                    } else {
+                        return publishToChoreo(payload).thenReturn(message);
+                    }
+                }))
+                .onErrorResume(ex -> handleCustomError(ex, payload).thenReturn(message))
+            )
+            .onErrorResume(ex -> {
+                // receive() failure fallback
+                return Mono.fromCallable(() -> {
+                        PayloadMessageInterface fallbackPayload = createFallbackPayload(message);
+                        fallbackPayload.setError(true);
+                        fallbackPayload.setErrorDetails("Critical failure: " + ex.getMessage());
+                        return fallbackPayload;
+                    })
+                    .flatMap(fallbackPayload -> publishToPlatform(fallbackPayload).thenReturn(message))
+                    .onErrorResume(err -> Mono.just(message));
+            });
+    }
+
+    private Mono<Void> handleCustomError(Throwable ex, PayloadMessageInterface payload) {
+        payload.setError(true);
+        if (ex instanceof BusinessException) {
+            payload.setErrorDetails("Business error: " + ex.getMessage());
+        } else if (ex instanceof ValidationException) {
+            payload.setErrorDetails("Validation error: " + ex.getMessage());
+        } else {
+            payload.setErrorDetails("Unexpected error: " + ex.getMessage());
+        }
+        return publishToPlatform(payload);
+    }
+
+    private PayloadMessageInterface createFallbackPayload(Message<?> message) {
+        PayloadMessage payload = new PayloadMessage();
+        payload.setError(true);
+        payload.setErrorDetails("Failed to extract payload from message.");
+        return payload;
+    }
+}
+
+
+
+
+import org.springframework.messaging.Message;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+@Service
+public class CsCxProcess extends AbstractAtomic {
+
+    @Override
+    protected Mono<PayloadMessageInterface> receive(Message<?> message) {
+        return Mono.fromCallable(() -> {
+            Object rawPayload = message.getPayload();
+
+            if (!(rawPayload instanceof String)) {
+                throw new ValidationException("Payload is not a valid String");
+            }
+
+            String data = ((String) rawPayload).trim();
+            if (data.isEmpty()) {
+                throw new ValidationException("Payload is empty");
+            }
+
+            PayloadMessage payload = new PayloadMessage();
+            payload.setData(data);
+
+            return payload;
+        });
+    }
+
+    @Override
+    protected Mono<Void> connectDomainService(PayloadMessageInterface payload) {
+        return Mono.fromRunnable(() -> {
+            // Business rule: if data equals "fail", throw BusinessException
+            if ("fail".equalsIgnoreCase(payload.getData())) {
+                throw new BusinessException("Simulated business failure for payload: " + payload.getData());
+            }
+            // Simulate success (modify payload or do other logic if needed)
+        });
+    }
+}
+
+
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.Message;
+import reactor.core.publisher.Mono;
+
+import java.util.function.Function;
+
+@Configuration
+public class ListenerConfig {
+
+    @Bean
+    public Function<Mono<Message<?>>, Mono<Message<?>>> fnCsCxProcess(CsCxProcess csCxProcess) {
+        return inputMono -> inputMono.flatMap(csCxProcess::doProcess);
+    }
+}
+
