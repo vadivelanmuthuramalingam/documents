@@ -105,6 +105,10 @@ Heap
    the space 4194304K, 50% used [0x0000000100000000, 0x0000000120000000, 0x0000000140000000)
  Metaspace       used 262144K, capacity 524288K, committed 393216K, reserved 1048576K
  class space    used 65536K, capacity 131072K, committed 98304K, reserved 262144K
+ 
+ 
+Heap Size=Total Memory Limit−(Thread Count×Stack Size per Thread+Metaspace+JVM overhead)
+1024 - (100*1+128+128) 
 
 What to focus on?
 	New Generation (def new generation / Eden + Survivor spaces): Where short-lived objects are allocated
@@ -151,10 +155,53 @@ How to Check the Default Thread Stack Size?
 	java -XX:+PrintFlagsFinal -version | grep ThreadStackSize
 
 Step 1: Get thread count-->          jcmd <pid> Thread.print | grep -c "nid="
+									 jcmd <pid> Thread.print   -------- Equivelant to Thread Dump
 Step 2: Get stack size--> 			 jcmd <pid> VM.flags | grep Xss
 Step 3: Calculate total stack usage:-->     stack_usage = thread_count × Xss
 
 
+
+State			Description
+NEW				Thread has been created but not started yet.
+RUNNABLE		Thread is executing or ready to execute, but may be waiting for CPU time.
+BLOCKED			Thread is waiting to acquire a monitor lock to enter a synchronized block/method.
+WAITING			Thread is waiting indefinitely for another thread to perform an action (e.g. join(), park()).
+TIMED_WAITING	Thread is waiting for a specified period of time (e.g. sleep(), wait(timeout), join(timeout)).
+
+
+
+"thread-name" #id daemon prio=5 os_prio=0 cpu=1234ms elapsed=5678ms tid=0x... nid=0x... waiting on condition [0x123217327432]
+
+
+1. daemon
+	Indicates whether the thread is a daemon thread or not.
+	Daemon threads are background threads that do not prevent the JVM from exiting.
+	If all non-daemon threads finish, the JVM shuts down even if daemon threads are still running.
+
+	Example: Garbage collector threads, timer threads are often daemon threads.
+
+2. prio=
+	The Java thread priority (an integer from 1 to 10).
+	Default is usually 5.
+	Influences thread scheduling priority within the JVM (not strictly guaranteed by OS).
+	Higher value means higher priority for CPU scheduling by the JVM.
+
+3. os_prio=
+	The operating system thread priority assigned to the thread.
+	Reflects the priority level the OS uses to schedule the thread.
+	Mapping between Java priority and OS priority depends on the JVM and OS.
+	Can vary widely by platform.
+
+4. cpu=
+	The total CPU time consumed by the thread so far (usually in milliseconds).
+	Shows how much CPU time the thread has used since it started.
+	Useful for identifying threads that consume a lot of CPU.
+	Note: Not all JVM implementations provide this info, but HotSpot typically does.
+
+5. elapsed=
+	The elapsed wall-clock time since the thread was started (usually in milliseconds).
+	How long this thread has existed.
+	Helps compare CPU time with total runtime to identify CPU-intensive threads.
 
 
 
