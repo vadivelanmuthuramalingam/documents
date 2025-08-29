@@ -1,3 +1,57 @@
+ps --version
+ps aux --sort=-%cpu
+ps aux | sort -rk3,3
+ps -eo pid,ppid,user,%mem,%cpu,cmd --sort=-%cpu
+
+-------------------------------
+nproc - CPU limit per server, which is not usefull for kubernetees, use the below command for openshft/kubernetees
+
+cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us Example: 40000
+cat /sys/fs/cgroup/cpu/cpu.cfs_period_us  Example: 100000
+CPU limit = cpu.cfs_quota_us / cpu.cfs_period_us
+
+
+CPU limit = 40000/100000 = .4 CPU or 400 millicores
+Your pod is allowed to use 0.4 CPU cores, or 400 millicores.
+
+
+====================================================================
+
+
+Check Used CPU %
+ps -eo %cpu | awk '{s+=$1} END {print s}'   	Example: 12.5
+
+visible CPUs = nproc cmd value = example 22 (particular server CPU)
+
+used CPU cores = (ps CPU%) × (visible CPUs / 100)
+               = 12.5 × (22 / 100) = 2.75 cores
+
+But your pod is only allowed 0.4 cores.
+
+So to calculate used CPU % relative to quota:	
+used CPU % = (used cores / allocated cores) × 100
+           = (2.75 / 0.4) × 100 = 687.5%
+
+
+
+
+--------------other option-----------
+quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+limit=$(echo "scale=2; $quota / $period" | bc)
+visible=$(nproc)
+used_cpu=$(ps -eo %cpu | awk '{s+=$1} END {print s}')
+used_cores=$(echo "scale=2; $used_cpu * $visible / 100" | bc)
+usage_pct=$(echo "scale=2; $used_cores / $limit * 100" | bc)
+echo "CPU limit: $limit cores"
+echo "CPU used: $used_cores cores"
+echo "CPU usage vs limit: $usage_pct%"
+		   
+
+
+
+
+
 Identify the JVM Processes Inside the Pod
 =========================================================
 
@@ -14,6 +68,55 @@ ps -p <pid> -o %cpu,cmd
 Heap Usage (Per JVM)
 =================================================
 jcmd <pid> GC.heap_info
+
+Example Output:
+Heap
+ def new generation   total 2097152K, used 1048576K [0x00000000f0000000, 0x0000000100000000, 0x0000000100000000)
+  eden space 1835008K, 50% used [0x00000000f0000000, 0x00000000f8000000, 0x00000000fbc00000)
+  from space 262144K, 0% used [0x00000000fbc00000, 0x00000000fbc00000, 0x00000000fc000000)
+  to   space 262144K, 0% used [0x00000000fc000000, 0x00000000fc000000, 0x0000000100000000)
+ tenured generation   total 4194304K, used 2097152K [0x0000000100000000, 0x0000000140000000)
+   the space 4194304K, 50% used [0x0000000100000000, 0x0000000120000000, 0x0000000140000000)
+ Metaspace       used 262144K, capacity 524288K, committed 393216K, reserved 1048576K
+ class space    used 65536K, capacity 131072K, committed 98304K, reserved 262144K
+
+What to focus on?
+	New Generation (def new generation / Eden + Survivor spaces): Where short-lived objects are allocated
+	Tenured Generation (tenured generation / the space): Where long-lived objects reside
+	Metaspace / Class Space: JVM internal structures, growing as classes load/unload
+
+1. Eden Space
+	Purpose: Where new objects are initially allocated.
+	It’s the primary allocation area in the young generation.
+	Most objects start their life here.
+	When Eden fills up, a minor garbage collection (GC) is triggered.
+
+2. From Space (Survivor Space)
+	One of two Survivor spaces in the Young Generation.
+	During a minor GC, live objects in Eden and From Space are copied here (or promoted to Old Gen if old enough).
+	It acts as a holding area for surviving objects after GC.
+	At any time, one survivor space is called From Space (the source of surviving objects), the other is To Space.
+
+3. To Space (Survivor Space)
+	The other survivor space.
+	Used as the destination during a minor GC.
+	Surviving objects from Eden and From are copied here.
+	After GC completes, roles of From and To spaces are switched.
+
+How Do They Work Together?
+	Objects are allocated in Eden.
+	When Eden fills up → Minor GC happens:
+	Live objects in Eden and From Space are copied to To Space.
+	Objects that survive enough minor GCs get promoted to Old Generation.
+
+After GC:
+	To Space becomes the new From Space.
+	The old From Space becomes the new To Space (empty).
+
+
+
+
+
 
 
 Stack Usage (Per JVM)
