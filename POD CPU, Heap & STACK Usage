@@ -145,6 +145,9 @@ After GC:
 
 Stack Usage (Per JVM)
 ========================================================
+How to Check the Default Thread Stack Size?
+	java -XX:+PrintFlagsFinal -version | grep ThreadStackSize
+
 Step 1: Get thread count-->          jcmd <pid> Thread.print | grep -c "nid="
 Step 2: Get stack size--> 			 jcmd <pid> VM.flags | grep Xss
 Step 3: Calculate total stack usage:-->     stack_usage = thread_count × Xss
