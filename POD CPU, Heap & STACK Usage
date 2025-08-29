@@ -1,3 +1,5 @@
+Clear Console --> printf "\033c"  or clear
+
 ps --version
 ps -eo %cpu
 ps aux --sort=-%cpu
