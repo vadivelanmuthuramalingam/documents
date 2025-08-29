@@ -107,6 +107,38 @@ Heap
  class space    used 65536K, capacity 131072K, committed 98304K, reserved 262144K
  
  
+jcmd <pid> GC.class_stats
+jcmd <pid> GC.heap_info
+
+jcmd <pid> VM.uptime
+8978912321 s
+
+
+jstat -gc <pid> 1000
+ S0C    S1C    S0U    S1U      EC       EU        OC         OU       MC       MU       CCSC     CCSU       YGC     YGCT     FGC     FGCT     GCT
+1024.0 1024.0  512.0   0.0   8192.0   4096.0   16384.0    8192.0   2048.0   1024.0     256.0    128.0        15    0.150    3     0.220   0.370
+
+
+Column		Description
+S0C			Survivor 0 capacity (KB)
+S1C			Survivor 1 capacity (KB)
+S0U			Survivor 0 used (KB)
+S1U			Survivor 1 used (KB)
+EC			Eden space capacity (KB)
+EU			Eden space used (KB)
+OC			Old generation capacity (KB)
+OU			Old generation used (KB)
+MC			Metaspace capacity (KB)
+MU			Metaspace used (KB)
+CCSC		Compressed Class Space capacity (KB)
+CCSU		Compressed Class Space used (KB)
+YGC			Number of Young GCs since JVM start
+YGCT		Total Young GC time (seconds)
+FGC			Number of Full GCs
+FGCT		Total Full GC time (seconds)
+GCT			Total GC time (YGCT + FGCT)
+
+ 
 Heap Size=Total Memory Limit−(Thread Count×Stack Size per Thread+Metaspace+JVM overhead)
 1024 - (100*1+128+128) 
 
