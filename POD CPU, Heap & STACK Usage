@@ -1,0 +1,99 @@
+Identify the JVM Processes Inside the Pod
+=========================================================
+
+ps -e -o pid,cmd | grep java
+
+
+CPU Usage (Per Java Process)
+========================================
+top -p <pid> -b -n 1
+	or
+ps -p <pid> -o %cpu,cmd
+
+
+Heap Usage (Per JVM)
+=================================================
+jcmd <pid> GC.heap_info
+
+
+Stack Usage (Per JVM)
+========================================================
+Step 1: Get thread count-->          jcmd <pid> Thread.print | grep -c "nid="
+Step 2: Get stack size--> 			 jcmd <pid> VM.flags | grep Xss
+Step 3: Calculate total stack usage:-->     stack_usage = thread_count × Xss
+
+
+
+
+
+
+
+
+
+
+public long getContainerCpuUsageNano() throws IOException {
+    Path path = Paths.get("/sys/fs/cgroup/cpu/cpuacct.usage");
+    return Long.parseLong(Files.readString(path).trim());
+}
+
+public double calculateCpuUsagePercentNano() throws IOException, InterruptedException {
+    long startUsage = getContainerCpuUsageNano();
+    long startTime = System.nanoTime();
+
+    Thread.sleep(200); // short measurement window
+
+    long endUsage = getContainerCpuUsageNano();
+    long endTime = System.nanoTime();
+
+    long cpuDelta = endUsage - startUsage;     // in nanoseconds
+    long timeDelta = endTime - startTime;      // in nanoseconds
+    int cpuCores = Runtime.getRuntime().availableProcessors();
+
+    return (cpuDelta * 100.0) / (timeDelta * cpuCores);
+}
+
+
+
+
+public long getContainerCpuUsageNano() throws IOException {
+    // For cgroups v1 (older systems)
+    Path path = Paths.get("/sys/fs/cgroup/cpu/cpuacct.usage");
+    return Long.parseLong(Files.readString(path).trim());
+}
+
+
+public long getContainerCpuUsageMicro() throws IOException {
+    Path path = Paths.get("/sys/fs/cgroup/cpu.stat");
+    List<String> lines = Files.readAllLines(path);
+    for (String line : lines) {
+        if (line.startsWith("usage_usec")) {
+            return Long.parseLong(line.split(" ")[1].trim());
+        }
+    }
+    throw new IOException("usage_usec not found");
+}
+
+
+int cpuCores = Runtime.getRuntime().availableProcessors();
+
+
+
+public double calculateCpuUsagePercent() throws IOException, InterruptedException {
+    long startUsage = getContainerCpuUsageNano();
+    long startTime = System.nanoTime();
+
+    Thread.sleep(2000); // wait 2 seconds
+
+    long endUsage = getContainerCpuUsageNano();
+    long endTime = System.nanoTime();
+
+    long cpuDelta = endUsage - startUsage; // in nanoseconds
+    long timeDelta = endTime - startTime;  // in nanoseconds
+
+    int cpuCores = Runtime.getRuntime().availableProcessors();
+
+    // CPU usage as a percentage of container's available CPUs
+    double cpuUsagePercent = (cpuDelta * 100.0) / (timeDelta * cpuCores);
+
+    return cpuUsagePercent;
+}
