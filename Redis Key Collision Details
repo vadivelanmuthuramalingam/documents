@@ -1,0 +1,46 @@
+	Redis cannot guarantee 100% avoidance of key collision unless developer enforce uniqueness in key design. Redis itself doesn’t magically prevent application from accidentally overwriting a key — if application SET with the same key name, it’ll happily replace the old value.
+
+The trick is in how you design your keyspace. Some production-grade ways to minimize (practically eliminate) collisions:
+
+Key Design Strategies
+
+Use namespaces (prefixes)
+	Example:
+		vca:123:profile
+		mvca:2025:status
+	
+	This makes collisions nearly impossible unless two different services accidentally choose the same naming scheme.
+
+Include business identifiers
+	Keys should embed unique attributes of the entity (user ID, order ID, session ID, etc.).
+	Example:
+		session:{userId}:{uuid}
+
+Add random/UUID suffix for extra safety
+	If multiple values can exist for the same entity at the same time:
+		transaction:{orderId}:{UUID.randomUUID()}
+
+Leverage Redis hash structures instead of flat keys
+	Instead of scattering keys:
+
+	user:123:name
+	user:123:email
+
+
+	You can consolidate into a hash:
+
+	HSET user:123 name "Alice" email "alice@example.com"
+	→ This avoids having too many flat keys and reduces the chance of collision.
+
+Enforce TTLs carefully
+	If you’re storing temporary data, expired keys will be reused. Make sure the combination of prefix + identifier is still unique even if old ones vanish.
+	
+What Redis doesn’t do
+	It does not provide automatic unique key generation for business data.
+	It does not warn or error on overwrite (unless you explicitly use SETNX → set if not exists).	
+
+👉 So the balance is:
+	Dev responsibility → Define a safe key design.
+	Automation support → 
+		Use Spring Data Redis annotations - It required the more changes 
+		Choose Service-level prefixes for each domain -	no one “forgets” and accidentally collides keys.	
