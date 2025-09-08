@@ -1,0 +1,686 @@
+Producer → SNS Topic → SQS Queue (subscriber) → Spring Cloud Stream Consumer
+
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.stereotype.Component;
+
+import java.util.function.Function;
+
+@Component
+public class DynamicMessageProcessor {
+
+    @Bean
+    public Function<Message<String>, Message<String>> processMessage() {
+        return message -> {
+            String payload = message.getPayload();
+            System.out.println("Consumed: " + payload);
+
+            if (payload.contains("SNS")) {
+                // Forward to SNS topic
+                return MessageBuilder.withPayload(payload.toUpperCase())
+                        .setHeader("spring.cloud.stream.sendto.destination", "sns-topic-1")
+                        .setHeader("spring.cloud.stream.sendto.binder", "snsBinder")
+                        .build();
+            } else if (payload.contains("KAFKA")) {
+                // Forward to Kafka topic
+                return MessageBuilder.withPayload(payload.toLowerCase())
+                        .setHeader("spring.cloud.stream.sendto.destination", "kafka-topic-1")
+                        .setHeader("spring.cloud.stream.sendto.binder", "kafkaBinder")
+                        .build();
+            }
+
+            // If no match → drop (return null)
+            return null;
+        };
+    }
+}
+
+=======================================================================================================================
+
+
+
+
+spring:
+  application:
+    name: service-a
+  cloud:
+    stream:
+      defaultBinder: sns
+      function:
+        definition: processMessage
+      bindings:
+        # Consumer binding for Topic A
+        processMessage-in-0:
+          destination: topic-a
+          group: service-a-group
+
+      # Allow publishing to dynamic destinations (Topic B, Topic C)
+      dynamic-destinations: topic-b, topic-c
+
+      binders:
+        sns:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY}
+                  region:
+                    static: ap-south-1
+                  stack:
+                    auto: false
+
+
+
+package com.example.snsdemo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.stream.function.StreamBridge;
+import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+
+import java.util.function.Consumer;
+
+@SpringBootApplication
+public class Application {
+
+    private final StreamBridge streamBridge;
+
+    public Application(StreamBridge streamBridge) {
+        this.streamBridge = streamBridge;
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+
+    /**
+     * Consumer to process messages from Topic A.
+     * Dynamically routes to Topic B (success) or Topic C (error).
+     */
+    @Bean
+    public Consumer<Message<String>> processMessage() {
+        return inputMessage -> {
+            String payload = inputMessage.getPayload();
+            try {
+                // ✅ Process logic
+                System.out.println("Processing message: " + payload);
+
+                if (payload.contains("error")) {
+                    throw new RuntimeException("Simulated error for payload: " + payload);
+                }
+
+                // On Success → publish to Topic B
+                Message<String> successMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventStatus", "SUCCESS")
+                        .build();
+                streamBridge.send("topic-b", successMsg);
+
+            } catch (Exception ex) {
+                // On Error → publish to Topic C
+                Message<String> errorMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventStatus", "ERROR")
+                        .setHeader("errorReason", ex.getMessage())
+                        .build();
+                streamBridge.send("topic-c", errorMsg);
+            }
+        };
+    }
+}
+
+
+===========================================================================================================
+
+spring:
+  application:
+    name: service-a
+  cloud:
+    stream:
+      function:
+        definition: processSns1;processSns2
+      bindings:
+        # Consumer binding for SNS1
+        processSns1-in-0:
+          destination: topic-a1
+          group: service-a1-group
+          binder: sns1
+
+        # Consumer binding for SNS2
+        processSns2-in-0:
+          destination: topic-a2
+          group: service-a2-group
+          binder: sns2
+
+      # Allow publishing to these topics dynamically (both go to sns1 by default here)
+      dynamic-destinations: topic-b, topic-c
+
+      binders:
+        sns1:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  credentials:
+                    access-key: ${AWS1_ACCESS_KEY_ID}
+                    secret-key: ${AWS1_SECRET_ACCESS_KEY}
+                  region:
+                    static: ap-south-1
+                  stack:
+                    auto: false
+
+        sns2:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  credentials:
+                    access-key: ${AWS2_ACCESS_KEY_ID}
+                    secret-key: ${AWS2_SECRET_ACCESS_KEY}
+                  region:
+                    static: us-east-1
+                  stack:
+                    auto: false
+
+
+
+package com.example.snsdemo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.stream.function.StreamBridge;
+import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+
+import java.util.function.Consumer;
+
+@SpringBootApplication
+public class Application {
+
+    private final StreamBridge streamBridge;
+
+    public Application(StreamBridge streamBridge) {
+        this.streamBridge = streamBridge;
+    }
+
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+
+    /**
+     * Consumer for SNS topic-1
+     */
+    @Bean
+    public Consumer<Message<String>> processSns1() {
+        return inputMessage -> {
+            String payload = inputMessage.getPayload();
+            System.out.println("SNS-1 message: " + payload);
+
+            try {
+                if (payload.contains("error")) {
+                    throw new RuntimeException("Simulated error from SNS1");
+                }
+                // Success → Topic B
+                Message<String> successMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventSource", "sns1")
+                        .setHeader("eventStatus", "SUCCESS")
+                        .build();
+                streamBridge.send("topic-b", successMsg);
+            } catch (Exception ex) {
+                // Failure → Topic C
+                Message<String> errorMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventSource", "sns1")
+                        .setHeader("eventStatus", "ERROR")
+                        .setHeader("errorReason", ex.getMessage())
+                        .build();
+                streamBridge.send("topic-c", errorMsg);
+            }
+        };
+    }
+
+    /**
+     * Consumer for SNS topic-2
+     */
+    @Bean
+    public Consumer<Message<String>> processSns2() {
+        return inputMessage -> {
+            String payload = inputMessage.getPayload();
+            System.out.println("SNS-2 message: " + payload);
+
+            try {
+                if (payload.contains("fail")) {
+                    throw new RuntimeException("Simulated error from SNS2");
+                }
+                // Success → Topic B
+                Message<String> successMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventSource", "sns2")
+                        .setHeader("eventStatus", "SUCCESS")
+                        .build();
+                streamBridge.send("topic-b", successMsg);
+            } catch (Exception ex) {
+                // Failure → Topic C
+                Message<String> errorMsg = MessageBuilder.withPayload(payload)
+                        .setHeader("eventSource", "sns2")
+                        .setHeader("eventStatus", "ERROR")
+                        .setHeader("errorReason", ex.getMessage())
+                        .build();
+                streamBridge.send("topic-c", errorMsg);
+            }
+        };
+    }
+}
+
+
+
+
+
+
+=================================================================================================================
+spring:
+  application:
+    name: service-a
+
+  cloud:
+    stream:
+      function:
+        definition: processMessage
+
+      bindings:
+        # Consumer from SNS1
+        processMessage-in-0:
+          destination: topic-a
+          group: service-a-group
+          binder: sns1
+		  consumer:
+            concurrency: 5
+			maxMessagesPerPoll: 10   # number of messages per poll
+            visibilityTimeout: 30s  # ensure processing finishes before message reappears
+
+      dynamic-destinations: topic-b, topic-c
+
+      binders:
+        sns1:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY}
+                  stack:
+                    auto: false
+
+        sns2:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID_SNS2}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY_SNS2}
+                  stack:
+                    auto: false
+
+        sns3:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID_SNS3}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY_SNS3}
+                  stack:
+                    auto: false
+
+        sns4:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID_SNS4}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY_SNS4}
+                  stack:
+                    auto: false
+
+
+
+
+
+
+
+package com.example.snsdemo;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.stereotype.Component;
+
+import java.util.function.Function;
+
+@Component
+public class DynamicMessageProcessor {
+
+    /**
+     * Function that consumes from SNS1 (topic-a) and
+     * publishes dynamically to SNS3 or SNS4 depending on payload.
+     */
+    @Bean
+    public Function<Message<String>, Message<String>> processMessage() {
+        return message -> {
+            String payload = message.getPayload();
+            System.out.println("Consumed from SNS1: " + payload);
+
+            try {
+                // Simulate processing
+                if (payload.contains("error")) {
+                    // Route to SNS4 (error topic)
+                    return MessageBuilder.withPayload("ERROR: " + payload)
+                            .setHeader("spring.cloud.stream.sendto.destination", "topic-c")
+                            .setHeader("spring.cloud.stream.sendto.binder", "sns4")
+                            .build();
+                } else {
+                    // Route to SNS3 (success topic)
+                    return MessageBuilder.withPayload("SUCCESS: " + payload)
+                            .setHeader("spring.cloud.stream.sendto.destination", "topic-b")
+                            .setHeader("spring.cloud.stream.sendto.binder", "sns3")
+                            .build();
+                }
+            } catch (Exception e) {
+                // Fail-safe route to SNS4
+                return MessageBuilder.withPayload("FATAL: " + payload)
+                        .setHeader("spring.cloud.stream.sendto.destination", "topic-c")
+                        .setHeader("spring.cloud.stream.sendto.binder", "sns4")
+                        .build();
+            }
+        };
+    }
+}
+
+
+
+
+============================================================================================================
+
+
+spring:
+  application:
+    name: service-a
+
+  cloud:
+    stream:
+      function:
+        definition: processMessage
+
+      bindings:
+        # Consumer: read from SQS queue subscribed to SNS Topic A
+        processMessage-in-0:
+          destination: queue-a               # SQS queue name
+          group: service-a-group
+          binder: sqs1
+          consumer:
+            concurrency: 5                   # 5 threads per pod
+
+        # Producer: publish success messages to SNS Topic B
+        success-out-0:
+          destination: topic-b               # SNS topic name
+          binder: sns3
+
+        # Producer: publish error messages to SNS Topic C
+        error-out-0:
+          destination: topic-c               # SNS topic name
+          binder: sns4
+
+      binders:
+        # Binder for SQS (consume from Queue A)
+        sqs1:
+          type: sqs
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY}
+                  stack:
+                    auto: false
+
+        # Binder for SNS (success path)
+        sns3:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY}
+                  stack:
+                    auto: false
+
+        # Binder for SNS (error path)
+        sns4:
+          type: sns
+          environment:
+            spring:
+              cloud:
+                aws:
+                  region:
+                    static: ap-south-1
+                  credentials:
+                    access-key: ${AWS_ACCESS_KEY_ID}
+                    secret-key: ${AWS_SECRET_ACCESS_KEY}
+                  stack:
+                    auto: false
+
+
+import org.springframework.cloud.stream.function.StreamBridge;
+import org.springframework.context.annotation.Bean;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.stereotype.Component;
+
+import java.util.function.Consumer;
+
+@Component
+public class ServiceAProcessor {
+
+    private final StreamBridge streamBridge;
+
+    public ServiceAProcessor(StreamBridge streamBridge) {
+        this.streamBridge = streamBridge;
+    }
+
+    @Bean
+    public Consumer<Message<String>> processMessage() {
+        return message -> {
+            String payload = message.getPayload();
+            System.out.println("Service A consumed: " + payload);
+
+            try {
+                // Simulate processing logic
+                if (payload.contains("error")) {
+                    throw new RuntimeException("Error processing message: " + payload);
+                }
+
+                // ✅ Success → send to Topic B (SNS3 binder)
+                streamBridge.send("success-out-0",
+                        MessageBuilder.withPayload(payload.toUpperCase()).build());
+                System.out.println("Published to Topic B: " + payload);
+
+            } catch (Exception ex) {
+                // ❌ Error → send to Topic C (SNS4 binder)
+                streamBridge.send("error-out-0",
+                        MessageBuilder.withPayload(payload).build());
+                System.err.println("Published to Topic C (error): " + payload);
+            }
+        };
+    }
+}
+
+
+
+
+============================================================================================================
+
+
+2. Who creates them then?
+
+✅ Option A: Infrastructure as Code (recommended, prod-ready)
+
+Use Terraform, AWS CDK, or CloudFormation to provision SNS + SQS + subscriptions.
+
+This way you have consistent, version-controlled infra.
+
+✅ Option B: Application bootstrap (not ideal for prod)
+
+You can programmatically create topics/queues during service startup using the AWS SDK for Java:
+@Configuration
+public class AwsBootstrapConfig {
+
+    private final AmazonSNS snsClient;
+    private final AmazonSQS sqsClient;
+
+    public AwsBootstrapConfig(AmazonSNS snsClient, AmazonSQS sqsClient) {
+        this.snsClient = snsClient;
+        this.sqsClient = sqsClient;
+    }
+
+    @PostConstruct
+    public void setup() {
+        // 1. Create SNS topic if not exists
+        CreateTopicResult topicResult = snsClient.createTopic("topic-a");
+        String topicArn = topicResult.getTopicArn();
+
+        // 2. Create SQS queue if not exists
+        CreateQueueResult queueResult = sqsClient.createQueue("queue-a");
+        String queueUrl = queueResult.getQueueUrl();
+
+        // 3. Subscribe SQS to SNS
+        snsClient.subscribe(topicArn, "sqs", queueUrl);
+    }
+}
+
+
+
+
+
+package com.example.snsbootstrap;
+
+import jakarta.annotation.PostConstruct;
+import org.springframework.stereotype.Component;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.sns.SnsClient;
+import software.amazon.awssdk.services.sns.model.CreateTopicResponse;
+import software.amazon.awssdk.services.sns.model.SubscribeRequest;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.model.*;
+
+@Component
+public class AwsBootstrap {
+
+    private final SnsClient snsClient;
+    private final SqsClient sqsClient;
+
+    public AwsBootstrap() {
+        this.snsClient = SnsClient.builder()
+                .region(Region.AP_SOUTH_1)
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+
+        this.sqsClient = SqsClient.builder()
+                .region(Region.AP_SOUTH_1)
+                .credentialsProvider(DefaultCredentialsProvider.create())
+                .build();
+    }
+
+    @PostConstruct
+    public void init() {
+        // 1. Create SNS topics
+        CreateTopicResponse topicA = snsClient.createTopic(b -> b.name("topic-a"));
+        CreateTopicResponse topicB = snsClient.createTopic(b -> b.name("topic-b"));
+
+        String topicAArn = topicA.topicArn();
+        String topicBArn = topicB.topicArn();
+
+        // 2. Create SQS queue
+        CreateQueueResponse queueResponse = sqsClient.createQueue(
+                CreateQueueRequest.builder().queueName("queue-main").build());
+        String queueUrl = queueResponse.queueUrl();
+
+        // 3. Get queue ARN
+        GetQueueAttributesResponse queueAttrs = sqsClient.getQueueAttributes(
+                GetQueueAttributesRequest.builder()
+                        .queueUrl(queueUrl)
+                        .attributeNames(QueueAttributeName.QUEUE_ARN)
+                        .build());
+        String queueArn = queueAttrs.attributes().get(QueueAttributeName.QUEUE_ARN);
+
+        // 4. Attach SQS policy to allow SNS topics to publish
+        String policy = "{\n" +
+                "  \"Version\": \"2012-10-17\",\n" +
+                "  \"Statement\": [\n" +
+                "    {\n" +
+                "      \"Effect\": \"Allow\",\n" +
+                "      \"Principal\": \"*\",\n" +
+                "      \"Action\": \"sqs:SendMessage\",\n" +
+                "      \"Resource\": \"" + queueArn + "\",\n" +
+                "      \"Condition\": {\n" +
+                "        \"ArnEquals\": {\n" +
+                "          \"aws:SourceArn\": [\"" + topicAArn + "\", \"" + topicBArn + "\"]\n" +
+                "        }\n" +
+                "      }\n" +
+                "    }\n" +
+                "  ]\n" +
+                "}";
+        sqsClient.setQueueAttributes(SetQueueAttributesRequest.builder()
+                .queueUrl(queueUrl)
+                .attributesWithStrings(
+                        "Policy", policy
+                )
+                .build());
+
+        // 5. Subscribe queue to topics
+        snsClient.subscribe(SubscribeRequest.builder()
+                .topicArn(topicAArn)
+                .protocol("sqs")
+                .endpoint(queueArn)
+                .build());
+
+        snsClient.subscribe(SubscribeRequest.builder()
+                .topicArn(topicBArn)
+                .protocol("sqs")
+                .endpoint(queueArn)
+                .build());
+
+        System.out.println("✅ Bootstrap complete: queue-main subscribed to topic-a and topic-b");
+    }
+}
+
+
+
