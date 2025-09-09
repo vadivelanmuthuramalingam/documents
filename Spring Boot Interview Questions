@@ -1,0 +1,200 @@
+Questions on Spring Boot part- 1
+
+
+Why will you choose Spring Boot over Spring Framework ?
+	I would choose Spring Boot over the plain Spring Framework because it accelerates development by providing auto-configuration, embedded servers, and opinionated defaults. It comes production-ready with Actuator, easier dependency management, and starter projects, making it ideal for microservices and cloud deployments. While plain Spring gives fine-grained control, Boot removes boilerplate and helps teams deliver faster with consistent configurations.
+        1. Auto-Configuration
+        2. Embedded Servers
+        3. Opinionated Defaults
+        4. Production-Ready Features
+        5. Faster Development
+        6. Microservices Architecture
+        7. Developer Productivity
+        
+What all spring boot starter you have used or what all module you have worked on ?
+🔹 Core & Web
+        spring-boot-starter-web → For building REST APIs and MVC applications (Tomcat embedded by default).
+        spring-boot-starter-webflux → For reactive programming with non-blocking I/O.
+        spring-boot-starter-actuator → Health checks, metrics, and monitoring.
+🔹 Data & Persistence
+        spring-boot-starter-data-jpa → ORM with Hibernate, repository abstractions.
+        spring-boot-starter-data-redis → Redis caching and data store (with Jedis or Lettuce).
+        spring-boot-starter-jdbc → Plain JDBC with connection pooling (HikariCP).
+        spring-boot-starter-data-mongodb → NoSQL document database.
+🔹 Messaging
+        spring-boot-starter-amqp → RabbitMQ.
+        spring-boot-starter-artemis or activemq → JMS messaging.
+        spring-cloud-starter-stream-solace / kafka / rabbit → Event-driven microservices.
+🔹 Security & Auth
+        spring-boot-starter-security → Authentication, authorization, JWTs, OAuth2.
+        spring-boot-starter-oauth2-client / oauth2-resource-server → OAuth flows.
+🔹 Cloud & Microservices
+        spring-cloud-starter-netflix-eureka-client → Service discovery.
+        spring-cloud-starter-config → Centralized configuration management.
+        spring-cloud-starter-gateway → API Gateway.
+        spring-cloud-starter-openfeign → Declarative REST client.
+        spring-cloud-starter-sleuth → Distributed tracing (with Zipkin/Jaeger).
+🔹 Utility
+        spring-boot-starter-validation → Bean validation with Hibernate Validator.
+        spring-boot-starter-mail → Sending emails via SMTP.
+        spring-boot-starter-quartz → Job scheduling.
+        spring-boot-starter-batch → Batch processing with retry, job repository.
+        spring-boot-starter-test → JUnit, Mockito, AssertJ for testing.
+
+
+How will you run your Spring Boot application ?
+        mvn spring-boot:run
+        mvn clean package
+
+        ./gradlew bootRun
+
+        java -jar target/myapp-0.0.1-SNAPSHOT.jar
+
+
+What is the purpose of the @SpringBootApplication annotation in a Spring Boot application ?
+        The @SpringBootApplication annotation is a meta-annotation that combines @Configuration, @EnableAutoConfiguration, and @ComponentScan. It marks the class as a configuration class, enables auto-configuration of Spring beans based on dependencies, and triggers component scanning in the current package. In short, it’s the entry point that sets up a Spring Boot app with minimal configuration
+
+        @SpringBootApplication = @Configuration + @EnableAutoConfiguration + @ComponentScan
+
+        @SpringBootApplication(scanBasePackages = {"com.myapp", "com.sharedlib"}) --> customize
+        @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class}) --> exclude auto-configurations
+
+
+
+
+can I directly use @EnableAutoConfiguration ,@ComponentScan & @Configuration annotation in my main class , instead of using
+@SpringBootApplication annotation , if yes will my application work as expected ?
+        Yes, technically I can replace @SpringBootApplication with @Configuration, @EnableAutoConfiguration, and @ComponentScan, and the app will behave the same. But @SpringBootApplication is preferred because it’s cleaner, more readable, and centralizes customization. Using it also ensures forward compatibility with Spring Boot improvements. Spring Boot may enhance @SpringBootApplication with more meta-annotations in the future. If you hardcode the three separately, you won’t automatically get new features
+
+        With @SpringBootApplication, you can tweak auto-configuration and scanning in one place:
+                @SpringBootApplication(    scanBasePackages = "com.myapp",     exclude = {DataSourceAutoConfiguration.class} )
+        If you split the annotations, you’ll have to configure these in different places, which gets messy.
+
+What is Auto configuration in spring boot ?
+Auto-configuration is Spring Boot’s mechanism to automatically configure beans in your application context based on:
+        Classpath dependencies (what libraries you’ve added)
+        Defined beans (your custom ones override defaults)
+        External properties (application.yml / application.properties)
+
+How can you disable a specific auto-configuration class in Spring Boot ?
+        We can disable a specific auto-configuration in multiple ways. The most common is by using exclude in the @SpringBootApplication annotation, like excluding DataSourceAutoConfiguration if we want a custom DataSource. We can also disable it via spring.autoconfigure.exclude in application properties, or use @EnableAutoConfiguration(exclude=...) on a configuration class. This gives fine-grained control when Boot’s default setup clashes with our custom setup.
+        1. Using exclude in @SpringBootApplication
+                @SpringBootApplication(exclude = {DataSourceAutoConfiguration.class})
+                public class MyApplication {
+                    public static void main(String[] args) {
+                        SpringApplication.run(MyApplication.class, args);
+                    }
+                }
+        2. Using excludeName (string-based)
+                @SpringBootApplication(excludeName = {
+                    "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
+                })
+        3. Via application.properties / application.yml
+                spring:
+                  autoconfigure:
+                    exclude:
+                      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+
+How can you customize the default configuration in Spring Boot ?
+How Spring boot run() method works internally ?
+What is Command line runner in spring boot ?
+Questions on Spring Boot part- 2
+
+
+Can you explain the purpose of Stereotype annotations in the Spring Framework ?
+How can you define bean in spring framework ?
+What is dependency injection ?
+How many ways we can perform dependency injection in spring or spring boot ?
+where you would choose to use setter injection over constructor injection, and vice versa ?
+Can you provide an example of a real-world use case where @PostConstruct is particularly useful?
+How can we dynamically load values in a Spring Boot application?
+Can you explain the key differences between YML and properties files, and in what scenarios you might prefer one format over the other?
+What is the difference between yml & YAML ?
+If I will configure same values in both properties then which value will be load in spring boot OR Who will load first properties or yml file ?
+How to load External Properties in Spring Boot ?
+How to map or bind config properties to java Object ?
+Questions on Spring Boot part- 3
+
+
+How will you resolve bean dependency ambiguity ?
+Can we avoid this dependency ambiguity without using @Qualifier ?
+What is bean scope & Can you explain different type of bean scope ?
+How to define custom bean scope ?
+Can you provide a few real-time use cases for when to choose Singleton scope and Prototype scope ?
+can we inject prototype bean in singleton bean ? if yes what will happen if we inject prototype bean in singleton bean ?
+What is the difference between spring singleton and plain singleton ?
+What is the purpose of the BeanPostProcessor interface in Spring, and how can you use it to customize bean initialization and destruction?
+Questions on Spring Boot part- 4
+
+
+Have you worked on Restful webservices ? If yes What all HTTP methods have you used in your project ?
+How can you specify the HTTP method type for your REST endpoint?
+Scenario : Can you design a rest endpoint , Assume that you have a Product database, and your task is to create an API to filter a list of products by productType ?
+Scenario : Design endpoints in a way that takes “productType” as input. If the user provides this input, the endpoint should filter products based on the specified condition. If “productType” is not provided, the endpoint should return all the products. ?
+What is the difference between @PathVariable & @RequestParam ?
+Why did you use @RestController why not @Controller ?
+How can we deserialize a JSON request payload into an object within a Spring MVC controller ?
+Can we perform update operation in POST http method if yes then why do we need Put Mapping or put http method?
+Can we pass Request Body in GET HTTP Method ?
+How can we perform content negotiation (XML/JSON) in Rest endpoint ?
+What all status code you have observed in your application ?
+How can you customize the status code for your endpoint ?
+How can you enable cross origin ?
+How can you upload a file in spring ?
+How do you maintain versioning for your REST API?
+How will you document your rest API ?
+How can you hide certain REST endpoints to prevent them from being exposed externally?
+How will you consume restful API ?
+Questions on Spring Boot part- 5
+
+
+How will you handle exceptions in your project ?
+How can you avoid defining handlers for multiple exceptions, or what is the best practice for handling exceptions ?
+How will you validate or sanitise your input payload ?
+How can you populate validation error message to the end users ?
+How can you define custom bean validation ?
+use case : let’s say you find a bug in production environment and now you want to debug that scenario ,How can you do that from your local ?
+How can you enable a specific environment without using profiles? OR what is the alternative to profiles to achieving same use case ?
+What is the difference between @Profile & @ConditioOnXXX ?
+What is AOP ?
+What is pointcut & join Points in AOP ?
+What are different type of advice ?
+use case — can I use AOP to evaluate performance of a method or is this possible to design a logging framework to capture request and response body of a method ?
+Questions on Spring Boot part- 6
+
+
+How does your application interact with the database and which frameworks are you using?
+Why is it important to configure a physical naming strategy?
+What are the key benefits of using Spring Data JPA ?
+What are the differences between Hibernate, JPA, and Spring Data JPA?
+How can you connect multiple databases or data sources in a single application?
+What are the different ways to define custom queries in Spring Data JPA ?
+Can you provide example to find results based on some range
+Ex 1 : Find list of employees whose age in between 30 lakh to 35 lakh
+Ex 2 : find avg salary of employees in an organization
+
+8. How will you define entity relationships or association mapping in Spring Data JPA?
+
+(Use Case: Consider an e-commerce application where each customer can have multiple orders. Here, a Customer entity can be associated with multiple Order entities.)
+
+9. Is this possible to execute Join query in Spring Data JPA ? If yes, how can you add some insights ?
+
+10. How will you implement pagination & Sorting in Spring Data JPA ?
+
+Questions on Spring Boot part- 7
+
+
+How will you handle auditing in your application ?
+Explain Different annotation used for auditing
+How can auditing be applied in a NoSQL database like MongoDB in Spring Boot?
+How can we customize auditing in Spring Boot ?
+How do you track entity modifications across different users in a microservices architecture, and how can a centralized audit service help with cross-service auditing?
+What is transaction management and how it works ?
+How will you handle transaction in your application ?
+What are different type of Isolation and Propagation ?
+Can we use transaction in private methods ?
+How will you handle transaction in distributed microservice ?
+Can we use transaction in multiple microservices why or why not ?
+NOTE : This blog will continue with regular uploads of questions from various modules of Spring Boot. You will receive notifications if you follow the JavaTechie Medium
+
+Spring Boot In-depth Interview Q&A
