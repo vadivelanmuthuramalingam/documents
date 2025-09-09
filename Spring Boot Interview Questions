@@ -96,23 +96,397 @@ How can you disable a specific auto-configuration class in Spring Boot ?
                       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
 
 How can you customize the default configuration in Spring Boot ?
+	my-redis-http-starter/
+	 ├── pom.xml
+	 └── src/main/java/com/example/starter/
+	 │     ├── redis/
+	 │     │     ├── MyRedisProperties.java
+	 │     │     └── MyRedisAutoConfiguration.java
+	 │     ├── http/
+	 │     │     ├── MyHttpProperties.java
+	 │     │     └── MyHttpAutoConfiguration.java
+	 │     └── client/
+	 │           ├── MyRedisClient.java   // wrapper for your redis jar
+	 │           └── MyHttpClient.java    // wrapper for your http jar
+	 └── src/main/resources/
+	       └── META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+
 How Spring boot run() method works internally ?
+	1. Create a SpringApplication instance
+		SpringApplication.run() actually creates a SpringApplication object.
+		It inspects your classpath:
+		If it sees spring-webmvc → configures Tomcat/Jetty/Undertow.
+		If it sees spring-webflux → configures a reactive server.
+		If neither, just starts a plain application context.	
+	2. Prepare the Environment
+		Reads command-line arguments, application.yaml/properties, environment variables, and merges them into the Environment.
+		Creates ConfigurableEnvironment (like StandardServletEnvironment for web apps).
+		Publishes an event: ApplicationEnvironmentPreparedEvent.	
+	3. Create & Configure the ApplicationContext
+		Chooses the right context:
+			AnnotationConfigServletWebServerApplicationContext (for servlet-based apps).
+			AnnotationConfigReactiveWebServerApplicationContext (for reactive apps).
+			AnnotationConfigApplicationContext (non-web).
+			Registers beans, component scans, configuration classes.	
+	4. Prepare Listeners & Initializers
+		Runs all ApplicationContextInitializers (you can hook into this).
+		Registers ApplicationListeners (to react to lifecycle events).
+	5. Refresh the Context
+		This is where the real magic happens:
+		Bean definitions are loaded.
+		Dependency injection is performed.
+		@Configuration classes are processed.
+		Auto-configuration kicks in (Spring Boot loads classes from spring.factories / AutoConfiguration.imports).
+		Lifecycle methods (@PostConstruct, InitializingBean.afterPropertiesSet) run.
+	6. Start the Embedded Server (if web app)
+		Boot will spin up Tomcat/Jetty/Undertow automatically.
+		Registers DispatcherServlet for HTTP request handling.
+	7. Trigger Runners
+		Runs beans that implement:
+		CommandLineRunner
+		ApplicationRunner
+		Useful for startup logic.
+	8. Application is Ready
+		Publishes ApplicationReadyEvent.
+		Your app is now listening for requests.
+
 What is Command line runner in spring boot ?
+	It’s a functional interface provided by Spring Boot:
+		@FunctionalInterface
+		public interface CommandLineRunner {
+		    void run(String... args) throws Exception;
+		}
+	Any bean that implements this will be executed after the Spring application context is loaded and just before the app is fully up.
+	🛠️ When to Use It?
+		Running initialization logic (e.g., load cache, seed database, verify connections).
+		Running startup jobs like scheduling, logging startup configs.
+		Quick argument-based tasks if you pass command-line args.
+
+What is Command line runner in spring boot ?
+	ApplicationRunner as the developer-friendly upgrade of CommandLineRunner. 
+
+	It’s a Spring Boot interface (functional) that lets you run custom code after the Spring application context is fully started.
+	Very similar to CommandLineRunner, but instead of giving you a raw String[] of arguments, it gives you a richer, structured object: ApplicationArguments.
+	
+	@FunctionalInterface
+	public interface ApplicationRunner {
+	    void run(ApplicationArguments args) throws Exception;
+	}
+
+
+
+
+
 Questions on Spring Boot part- 2
-
-
 Can you explain the purpose of Stereotype annotations in the Spring Framework ?
+	In Spring, stereotype annotations are specialized annotations used to tell the framework:
+	➡️ “Hey Spring, this class is a particular kind of component, please manage it as a bean in the application context.”
+
+	| **Annotation**          | **Role (Kind of Component)** | **Extra Features / Notes**                                                                |
+	| ----------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+	| `@Component`            | Generic component            | Basic Spring bean, no extra semantics.                                                    |
+	| `@Service`              | Service / Business logic     | Marks service layer classes. Helps readability & separation of concerns.                  |
+	| `@Repository`           | Data Access Object (DAO)     | Adds **exception translation** (JDBC → Spring `DataAccessException`).                     |
+	| `@Controller`           | MVC Controller (Web Layer)   | Used in Spring MVC for handling web requests (returns views, not JSON).                   |
+	| `@RestController`       | REST Controller              | Combines `@Controller` + `@ResponseBody`. Used for REST APIs returning JSON/XML directly. |
+	| `@Configuration`        | Configuration Class          | Special component that defines **beans** with `@Bean` methods.                            |
+	| `@ControllerAdvice`     | Global Controller Component  | Allows centralized exception handling / data binding across controllers.                  |
+	| `@RestControllerAdvice` | REST Exception Handler       | Like `@ControllerAdvice` but specialized for REST APIs.                                   |
+	| `@Indexed` (Spring 5)   | Optimized Component          | Works with `@Component` to help Spring index beans for faster startup.                    |
+
+
 How can you define bean in spring framework ?
+	XML → Old-school, less used in Spring Boot.
+	@Bean in @Configuration class → Explicit bean declaration.
+	@Component/@Service/etc. → Automatic detection via scanning.
+	
+	1. Using XML Configuration (Old Style)
+		This is the traditional way. You define beans inside applicationContext.xml or beans.xml
+		<beans xmlns="http://www.springframework.org/schema/beans"
+		       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+		       xsi:schemaLocation="
+		         http://www.springframework.org/schema/beans 
+		         http://www.springframework.org/schema/beans/spring-beans.xsd">
+		
+		    <!-- Define a bean with id and class -->
+		    <bean id="myService" class="com.example.service.MyService"/>
+		</beans>
+	2. Using Java-based Configuration (@Configuration + @Bean)
+		Spring Boot favors this style for flexibility and type-safety.
+			import org.springframework.context.annotation.Bean;
+			import org.springframework.context.annotation.Configuration;
+			@Configuration
+			public class AppConfig {
+			    @Bean
+			    public MyService myService() {
+			        return new MyService(); // Spring will manage this as a bean
+			    }
+			}
+	3. Using Stereotype Annotations (Component Scanning)
+		Spring automatically detects classes annotated with stereotypes like @Component, @Service, @Repository, or @Controller when component scanning is enabled.
+		import org.springframework.stereotype.Service;
+		@Service
+		public class MyService {
+		    public String greet() {
+		        return "Hello from MyService!";
+		    }
+		}
+
+
+
 What is dependency injection ?
+	Dependency Injection is a design pattern in which an object (or class) receives its dependencies from an external source rather than creating them itself.
+		A dependency is any object that a class needs to function.
+		Instead of new-ing its dependencies inside the class, the dependencies are injected by the Spring container.
+	🔹 Why Use Dependency Injection?
+		Loose Coupling – Classes don’t create or manage their dependencies.	
+		Easier Testing – You can inject mocks/stubs in unit tests.	
+		Maintainability – Changing a dependency doesn’t require modifying the class using it.	
+		Configuration Flexibility – Dependencies can be swapped via XML, Java config, or annotations.
+	🔹 Types of Dependency Injection in Spring
+		| Type                      | Description                                                       | Example                                                        |
+		| ------------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------- |
+		| **Constructor Injection** | Dependencies are provided through the constructor                 | `public MyService(MyRepository repo) { this.repo = repo; }`    |
+		| **Setter Injection**      | Dependencies are set via setter methods                           | `public void setRepo(MyRepository repo) { this.repo = repo; }` |
+		| **Field Injection**       | Dependencies are injected directly into fields using `@Autowired` | `@Autowired private MyRepository repo;`                        |
+
+	🔹 Example in Spring Boot
+		🔹 Using Constructor Injection (Recommended)
+			import org.springframework.stereotype.Service;
+			@Service
+			public class OrderService {
+			    private final PaymentService paymentService;
+			    public OrderService(PaymentService paymentService) {
+			        this.paymentService = paymentService;
+			    }
+			    public void processOrder() {
+			        paymentService.processPayment();
+			    }
+			}
+			
+			PaymentService
+			import org.springframework.stereotype.Service;
+			@Service
+			public class PaymentService {
+			    public void processPayment() {
+			        System.out.println("Payment processed!");
+			    }
+			}
+			Spring Boot automatically injects PaymentService into OrderService because both are annotated as beans (@Service).
+	
+		🔹 Field Injection (Not Recommended)
+			@Service
+			public class OrderService {
+			    @Autowired
+			    private PaymentService paymentService;
+			    public void processOrder() {
+			        paymentService.processPayment();
+			    }
+			}
+		🔹 Setter Injection
+			@Service
+			public class OrderService {
+			    private PaymentService paymentService;
+			    @Autowired
+			    public void setPaymentService(PaymentService paymentService) {
+			        this.paymentService = paymentService;
+			    }
+			    public void processOrder() {
+			        paymentService.processPayment();
+			    }
+			}
+Compare constructor, setter and field injection?
+	| Feature / Aspect                  | **Constructor Injection**                                      | **Setter Injection**                       | **Field Injection**                                            |
+	| --------------------------------- | -------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+	| **How dependencies are injected** | Via class constructor                                          | Via public setter method                   | Directly into fields with `@Autowired`                         |
+	| **Immutability**                  | ✅ Fully immutable (final fields possible)                      | ⚠️ Mutable (can change after construction) | ⚠️ Mutable                                                     |
+	| **Mandatory dependencies**        | ✅ Ensures required dependencies are set                        | ⚠️ Optional unless you add null checks     | ⚠️ Optional unless manually checked                            |
+	| **Testability / Mocking**         | ✅ Easy to test via constructor                                 | ✅ Easy to test via setter                  | ⚠️ Harder to test (requires reflection or Spring test context) |
+	| **Null-safety**                   | ✅ Null dependencies caught at construction time                | ⚠️ Null checks needed                      | ⚠️ Null checks needed                                          |
+	| **Circular dependency detection** | ✅ Spring can detect circular dependencies at construction time | ⚠️ Circular dependency may pass silently   | ⚠️ Circular dependency may pass silently                       |
+	| **Code readability**              | ✅ Clear what dependencies are required                         | ⚠️ Slightly less obvious                   | ⚠️ Dependencies hidden in fields                               |
+	| **Boilerplate code**              | ⚠️ Slightly more verbose                                       | ⚠️ Moderate                                | ✅ Minimal                                                      |
+	| **Spring Best Practice**          | ✅ Recommended                                                  | ⚠️ Acceptable                              | ❌ Not recommended                                              |
+
+Why Field Injection is Mutable
+	🔹 With field injection, Spring sets the field via reflection after the object is constructed.
+	🔹 Since the field cannot be final (final fields must be initialized in the constructor), the dependency can be modified later, either accidentally or intentionally.
+	🔹 This breaks immutability, which is a core principle for reliable, thread-safe design.
+		import org.springframework.beans.factory.annotation.Autowired;
+		import org.springframework.stereotype.Component;
+		@Component
+		class PaymentService {
+		    public void pay() {
+		        System.out.println("Payment processed!");
+		    }
+		}
+		@Component
+		class OrderService {
+		    // Field injection
+		    @Autowired
+		    private PaymentService paymentService;
+		    public void processOrder() {
+		        paymentService.pay();
+		    }
+		    // Someone can modify this dependency later
+		    public void setPaymentService(PaymentService paymentService) {
+		        this.paymentService = paymentService;
+		    }
+		}
+
+Strategy Pattern Example
+		public interface PaymentProcessor {
+		    void processPayment(double amount);
+		}
+		import org.springframework.stereotype.Component;
+		@Component("paypalProcessor")
+		public class PaypalPaymentProcessor implements PaymentProcessor {
+		    @Override
+		    public void processPayment(double amount) {
+		        System.out.println("Processed $" + amount + " via PayPal");
+		    }
+		}
+		import org.springframework.stereotype.Component;
+		@Component("stripeProcessor")
+		public class StripePaymentProcessor implements PaymentProcessor {
+		    @Override
+		    public void processPayment(double amount) {
+		        System.out.println("Processed $" + amount + " via Stripe");
+		    }
+		}
+		import org.springframework.stereotype.Service;
+		import java.util.Map;
+		@Service
+		public class PaymentService {
+		    private final Map<String, PaymentProcessor> processorMap;
+		    // Spring injects all beans implementing PaymentProcessor as a map
+		    public PaymentService(Map<String, PaymentProcessor> processorMap) {
+		        this.processorMap = processorMap;
+		    }
+		    public void makePayment(String type, double amount) {
+		        PaymentProcessor processor = processorMap.get(type + "Processor"); // bean names
+		        if (processor == null) {
+		            throw new IllegalArgumentException("No processor found for type: " + type);
+		        }
+		        processor.processPayment(amount);
+		    }
+		}
+				
+		What happens internally
+			Spring scans the context for all beans implementing PaymentProcessor.
+			It collects them into a Map:
+				Key: the bean name
+				Value: the bean instance
+
 How many ways we can perform dependency injection in spring or spring boot ?
+
 where you would choose to use setter injection over constructor injection, and vice versa ?
+	1️⃣ Constructor Injection (Recommended for most cases)
+		✅ Use Cases:
+			Required Dependencies: When a dependency must always be provided for the class to function correctly.
+			Immutability: You want the dependency to be final and unchangeable after creation.
+			Testability: Makes unit testing easier because dependencies are explicit.
+			Avoid Null References: Spring ensures the dependency is set at construction time.
+			Prevent Circular Dependency: Constructor injection makes circular dependencies obvious at startup.
+
+					@Service
+					public class OrderService {					
+					    private final PaymentService paymentService;					
+					    @Autowired
+					    public OrderService(PaymentService paymentService) {
+					        this.paymentService = paymentService;
+					    }					
+					    public void processOrder() {
+					        paymentService.pay();
+					    }
+						}
+	2️⃣ Setter Injection (Optional / Flexible Dependencies)
+		✅ Use Cases:
+			Optional Dependencies: The class can function without the dependency, but it can be injected if available.
+			Late Initialization: You may want to set or override the dependency after object creation.
+			Mutable Beans: When dependency might change dynamically (rare in practice).
+			Avoid Breaking Legacy Code: Sometimes required in frameworks or old code where constructor injection is not feasible.
+				@Service
+				public class NotificationService {				
+				    private EmailService emailService;				
+				    @Autowired
+				    public void setEmailService(EmailService emailService) {
+				        this.emailService = emailService;
+				    }				
+				    public void sendNotification(String msg) {
+				        if (emailService != null) {
+				            emailService.sendEmail(msg);
+				        } else {
+				            System.out.println("Email service not configured");
+				        }
+				    }
+				}
+
 Can you provide an example of a real-world use case where @PostConstruct is particularly useful?
+	@PostConstruct is very handy in real-world Spring applications for initializing beans after all dependencies are injected but before the bean is used.
+
 How can we dynamically load values in a Spring Boot application?
+	1️⃣ Using @Value Annotation @Value("${app.max-users}")
+	2️⃣ Using @ConfigurationProperties
+			@Component
+			@ConfigurationProperties(prefix = "app")
+			public class AppProperties {
+	3️⃣ Loading from External Sources (Database / API)
+	4️⃣ Using Spring Cloud Config (Distributed / Remote)
+	5️⃣ Environment Object
+
 Can you explain the key differences between YML and properties files, and in what scenarios you might prefer one format over the other?
+	| Feature               | **.properties**                      | **.yml / .yaml**                                  |                                |
+	| --------------------- | ------------------------------------ | ------------------------------------------------- | ------------------------------ |
+	| **Structure**         | Flat, key-value pairs                | Hierarchical / nested structure using indentation |                                |
+	| **Example**           | `app.name=MySpringApp`               | `yaml app: name: MySpringApp `                    |                                |
+	| **Arrays / Lists**    | `servers[0]=s1` <br> `servers[1]=s2` | `yaml servers: - s1 - s2 `                        |                                |
+	| **Comments**          | `# comment`                          | `# comment`                                       |                                |
+	| **Multi-line values** | Use `\` for line continuation        | Use \`                                            | `or`>\` for multi-line strings |
+
+
 What is the difference between yml & YAML ?
+	There is no difference in content or functionality. It’s just file naming convention.
+
 If I will configure same values in both properties then which value will be load in spring boot OR Who will load first properties or yml file ?
+	Spring Boot merges .yml and .properties files.
+	If a key exists in both, the last one read wins.
+		In practice:
+		classpath:/application.properties
+		classpath:/application.yml
+	.properties is loaded first, .yml is loaded after.
+	So the value from YAML will override the value in properties if the same key exists.
+
+
 How to load External Properties in Spring Boot ?
+	1️⃣ Using spring.config.location or spring.config.additional-location: You can place your properties or YAML file outside the jar and tell Spring Boot where to find it.
+	2️⃣ Using @PropertySource Annotation
+		import org.springframework.context.annotation.Configuration;
+		import org.springframework.context.annotation.PropertySource;
+		import org.springframework.beans.factory.annotation.Value;
+		@Configuration
+		@PropertySource("file:/opt/config/external.properties")
+		public class ExternalConfig {
+		    @Value("${app.name}")
+		    private String appName;
+		    public String getAppName() { return appName; }
+		}
+	3️⃣ Environment Variables
+		Environment variables are OS-level variables that your operating system or container provides to processes, including your Spring Boot application. Spring Boot can automatically read them and map them to configuration properties.
+			Spring Boot automatically maps environment variables to properties.	
+			Use uppercase with underscores for nested properties.
+				export APP_NAME=EnvApp
+				export APP_PORT=8086
+				app:
+				  name: EnvApp
+				  port: 8086
+	4️⃣ Command-Line Arguments: java -jar myapp.jar --app.name=CmdApp --app.port=8087
+	5️⃣ Using Spring Cloud Config Server (Distributed Config)	
+
 How to map or bind config properties to java Object ?
+
+
+
 Questions on Spring Boot part- 3
 
 
