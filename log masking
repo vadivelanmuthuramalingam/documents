@@ -67,3 +67,96 @@
     </root>
 
 </configuration>
+
+
+
+
+
+
+
+
+
+package com.util;
+
+import ch.qos.logback.classic.PatternLayout;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class JsonLockBackEvent extends PatternLayout {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .disable(SerializationFeature.INDENT_OUTPUT); // ensure compact JSON
+
+    private List<Pattern> maskPatterns = new ArrayList<>();
+    private String hostName;
+    private String activeProfile;
+    private String sdlc;
+
+    public JsonLockBackEvent() {
+        try {
+            this.hostName = InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            this.hostName = "unknown-host";
+        }
+        this.activeProfile = System.getProperty("spring.profiles.active", "default");
+        this.sdlc = System.getProperty("sdlc.env", "dev");
+    }
+
+    public void setMaskPattern(String maskPattern) {
+        if (maskPattern != null && !maskPattern.isEmpty()) {
+            this.maskPatterns.add(Pattern.compile(maskPattern));
+        }
+    }
+
+    @Override
+    public String doLayout(ILoggingEvent event) {
+        Map<String, Object> logMap = new LinkedHashMap<>();
+        logMap.put("timestamp", new Date(event.getTimeStamp()).toString());
+        logMap.put("level", event.getLevel().toString());
+        logMap.put("thread", event.getThreadName());
+        logMap.put("logger", event.getLoggerName());
+        logMap.put("message", mask(event.getFormattedMessage()));
+        logMap.put("mdc", event.getMDCPropertyMap());
+        logMap.put("host", hostName);
+        logMap.put("profile", activeProfile);
+        logMap.put("sdlc", sdlc);
+
+        logMap.put("userFields", Map.of(
+                "requestId", event.getMDCPropertyMap().getOrDefault("requestId", "N/A"),
+                "userId", event.getMDCPropertyMap().getOrDefault("userId", "anonymous")
+        ));
+
+        if (event.getThrowableProxy() != null) {
+            logMap.put("exception", event.getThrowableProxy().getClassName());
+            logMap.put("errorMessage", event.getThrowableProxy().getMessage());
+			logMap.put("stackTrace", event.getThrowableProxy().getMessage());
+        }
+
+        try {
+            // single-line JSON + newline at the end
+            return MAPPER.writeValueAsString(logMap) + System.lineSeparator();
+        } catch (Exception e) {
+            return "{\"error\":\"Failed to serialize log\"}\n";
+        }
+    }
+
+    private String mask(String message) {
+        if (message == null) return null;
+        String masked = message;
+        for (Pattern p : maskPatterns) {
+            Matcher m = p.matcher(masked);
+            masked = m.replaceAll("****MASKED****");
+        }
+        return masked;
+    }
+}
+
+
+
