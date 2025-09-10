@@ -1,0 +1,69 @@
+<configuration>
+
+    <!-- Optional: Register custom converter for masking -->
+    <!--
+    <conversionRule conversionWord="mask"
+                    converterClass="com.example.demo.log.MaskingConverter" />
+    -->
+
+    <!-- ========================= -->
+    <!-- Appender 1: INFO logs only -->
+    <!-- ========================= -->
+    <appender name="INFO_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>INFO</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+
+        <encoder class="ch.qos.logback.classic.encoder.LayoutWrappingEncoder">
+            <layout class="com.util.JsonLockBackEvent">
+                <pattern>[INFO] %d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- ========================= -->
+    <!-- Appender 2: Masked logs -->
+    <!-- DEBUG, WARN, ERROR, optional TRACE -->
+    <!-- ========================= -->
+    <appender name="MASKED_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- Accept DEBUG and higher levels -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>DEBUG</level>
+        </filter>
+
+        <!-- Deny INFO logs -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>INFO</level>
+            <onMatch>DENY</onMatch>
+            <onMismatch>NEUTRAL</onMismatch>
+        </filter>
+
+        <!-- Optional: Include TRACE logs -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>TRACE</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>NEUTRAL</onMismatch>
+        </filter>
+
+        <!-- Masking regex (if handled inside layout or converter) -->
+        <encoder class="ch.qos.logback.classic.encoder.LayoutWrappingEncoder">
+            <layout class="com.util.JsonLockBackEvent">
+				<!-- JsonLockBackEvent extends ch.qos.logback.classic.PatternLayout-->
+				<maskPattern> <![CDATA[(\d{4})\d{8}(\d{4})]]>  </maskPattern>
+				
+                <pattern>[%level] %d{yyyy-MM-dd HH:mm:ss} %-5logger{36} - %msg%n</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- ========================= -->
+    <!-- Root Logger -->
+    <!-- ========================= -->
+    <root level="DEBUG">
+        <appender-ref ref="INFO_CONSOLE"/>
+        <appender-ref ref="MASKED_CONSOLE"/>
+    </root>
+
+</configuration>
