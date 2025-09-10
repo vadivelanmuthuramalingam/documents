@@ -1,0 +1,35 @@
+String key = "order:" + LocalDate.now() + ":sequence";
+long seq = jedis.incr(key);
+String uniqueId = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + "-" + seq;
+System.out.println(uniqueId);
+
+
+
+import redis.clients.jedis.Jedis;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+
+public class DailyIdGenerator {
+    private final Jedis jedis = new Jedis("localhost", 6379);
+
+    public String getNextId() {
+        String dateKey = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE); // e.g. 20250910
+        String key = "order:" + dateKey + ":sequence";
+
+        // INCR the counter
+        long seq = jedis.incr(key);
+
+        // Set TTL only if the key is new (i.e., first increment of the day)
+        if (seq == 1) {
+            jedis.expire(key, 3 * 24 * 60 * 60); // 3 days TTL
+        }
+
+        return dateKey + "-" + seq;
+    }
+
+    public static void main(String[] args) {
+        DailyIdGenerator gen = new DailyIdGenerator();
+        System.out.println(gen.getNextId()); // e.g., 20250910-1
+        System.out.println(gen.getNextId()); // e.g., 20250910-2
+    }
+}
