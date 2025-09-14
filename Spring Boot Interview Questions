@@ -805,20 +805,288 @@ How will you consume restful API ?
 
 Questions on Spring Boot part- 5
 
-
 How will you handle exceptions in your project ?
-How can you avoid defining handlers for multiple exceptions, or what is the best practice for handling exceptions ?
-How will you validate or sanitise your input payload ?
-How can you populate validation error message to the end users ?
-How can you define custom bean validation ?
-use case : let’s say you find a bug in production environment and now you want to debug that scenario ,How can you do that from your local ?
-How can you enable a specific environment without using profiles? OR what is the alternative to profiles to achieving same use case ?
-What is the difference between @Profile & @ConditioOnXXX ?
-What is AOP ?
-What is pointcut & join Points in AOP ?
-What are different type of advice ?
-use case — can I use AOP to evaluate performance of a method or is this possible to design a logging framework to capture request and response body of a method ?
+1) Why Exception Handling?
+	To provide consistent, meaningful error responses to clients.
+	To prevent stack traces from leaking to the client.
+	To map different exceptions to proper HTTP status codes.
+2) Approaches to Handle Exceptions in Spring Boot
+	a) Try-Catch in Controller (Not Recommended)
+		Simple but not scalable or maintainable.
+		@GetMapping("/products/{id}")
+		public ResponseEntity<Product> getProduct(@PathVariable Long id) {
+			try {
+				Product product = productService.getById(id);
+				return ResponseEntity.ok(product);
+			} catch (ProductNotFoundException ex) {
+				return ResponseEntity.status(HttpStatus.NOT_FOUND).body(null);
+			}
+		}
+	b) @ExceptionHandler in Controller: Handles exceptions only for that controller.
+		@RestController
+		@RequestMapping("/api/products")
+		public class ProductController {
 
+			@GetMapping("/{id}")
+			public Product getProduct(@PathVariable Long id) {
+				return productService.getById(id);
+			}
+
+			@ExceptionHandler(ProductNotFoundException.class)
+			public ResponseEntity<String> handleNotFound(ProductNotFoundException ex) {
+				return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage());
+			}
+		}
+	c) @ControllerAdvice (Global Exception Handling): Recommended approach for centralized exception handling.
+		@ControllerAdvice
+		public class GlobalExceptionHandler {
+			@ExceptionHandler(ProductNotFoundException.class)
+			public ResponseEntity<ErrorResponse> handleNotFound(ProductNotFoundException ex) {
+				ErrorResponse error = new ErrorResponse(
+					HttpStatus.NOT_FOUND.value(),
+					ex.getMessage()
+				);
+				return new ResponseEntity<>(error, HttpStatus.NOT_FOUND);
+			}
+			@ExceptionHandler(Exception.class)
+			public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
+				ErrorResponse error = new ErrorResponse(
+					HttpStatus.INTERNAL_SERVER_ERROR.value(),
+					"Something went wrong"
+				);
+				return new ResponseEntity<>(error, HttpStatus.INTERNAL_SERVER_ERROR);
+			}
+		}
+	d) Using @ResponseStatus on Exceptions: Annotate custom exceptions to automatically return an HTTP status.
+		@ResponseStatus(HttpStatus.NOT_FOUND)
+		public class ProductNotFoundException extends RuntimeException {
+			public ProductNotFoundException(String message) {
+				super(message);
+			}
+		}
+	e) Validation Exceptions: or @Valid or @Validated inputs, handle field errors:
+		@ExceptionHandler(MethodArgumentNotValidException.class)
+		public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException ex) {
+			Map<String, String> errors = new HashMap<>();
+			ex.getBindingResult().getFieldErrors()
+			  .forEach(error -> errors.put(error.getField(), error.getDefaultMessage()));
+			return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+		}
+	
+
+How can you avoid defining handlers for multiple exceptions, or what is the best practice for handling exceptions ?
+
+
+How will you validate or sanitise your input payload ?
+	Sanitization ensures input doesn’t contain malicious content like XSS, SQL Injection, etc.
+	
+	a) Escape HTML / Special Characters
+		import org.apache.commons.text.StringEscapeUtils;
+		
+		String sanitized = StringEscapeUtils.escapeHtml4(userInput);
+		
+		1) If your Spring Boot API stores the raw input without sanitization, it’s storing the malicious script.
+		2) When AngularJS renders this input as HTML without escaping, the script executes.
+		3) So backend sanitization is recommended even if frontend uses AngularJS auto-escaping.
+		4) Save safeInput in DB → prevents XSS even if frontend rendering fails.
+
+
+	b) Validate Allowed Patterns: Use regex validation for emails, phone numbers, or custom formats:
+		@Pattern(regexp = "^[a-zA-Z0-9 ]+$", message = "Invalid characters in name")
+		private String name;
+	c) Use Parameterized Queries / ORM
+			Prevent SQL Injection when storing input in database.
+			Avoid string concatenation in SQL; always use JPA or PreparedStatement.
+
+
+
+
+How can you define custom bean validation ?
+
+Yes! In Spring Boot, you can define custom bean validation when the built-in annotations (@NotNull, @Size, @Pattern, etc.) are not enough. This involves creating a custom annotation and implementing a validator. Let me explain step by step with an example.
+
+1️) Create a Custom Annotation
+	import jakarta.validation.Constraint;
+	import jakarta.validation.Payload;
+	import java.lang.annotation.*;
+	@Documented
+	@Constraint(validatedBy = ProductTypeValidator.class)  // link to validator
+	@Target({ ElementType.FIELD })
+	@Retention(RetentionPolicy.RUNTIME)
+	public @interface ValidProductType {
+		String message() default "Invalid product type";  // default error message
+		Class<?>[] groups() default {};
+		Class<? extends Payload>[] payload() default {};
+	}
+2️)Implement the Validator
+	Create a class that implements ConstraintValidator<Annotation, FieldType>.
+	import jakarta.validation.ConstraintValidator;
+	import jakarta.validation.ConstraintValidatorContext;
+	import java.util.Arrays;
+	import java.util.List;
+
+	public class ProductTypeValidator implements ConstraintValidator<ValidProductType, String> {
+		private final List<String> allowedTypes = Arrays.asList("Electronics", "Clothing", "Books");
+
+		@Override
+		public boolean isValid(String value, ConstraintValidatorContext context) {
+			if (value == null) return false;  // null check
+			return allowedTypes.contains(value);
+		}
+	}
+
+3️) Use the Custom Annotation in DTO
+	public class ProductDTO {
+		@NotNull(message = "Product name cannot be null")
+		private String name;
+		@ValidProductType
+		private String productType;
+	}
+4) Optional: Custom Error Messages with Parameters --> You can make your annotation dynamic, e.g., accept a list of allowed values:
+	@Target({ ElementType.FIELD })
+	@Retention(RetentionPolicy.RUNTIME)
+	@Constraint(validatedBy = ProductTypeValidator.class)
+	public @interface ValidProductType {
+		String message() default "Invalid product type. Allowed types: {types}";
+		Class<?>[] groups() default {};
+		Class<? extends Payload>[] payload() default {};
+		String[] types() default {}; // pass allowed types
+	}
+	
+	import jakarta.validation.ConstraintValidator;
+	import jakarta.validation.ConstraintValidatorContext;
+	import java.util.Arrays;
+	import java.util.List;
+
+	public class ProductTypeValidator implements ConstraintValidator<ValidProductType, String> {
+		private List<String> allowedTypes;
+		private String messageTemplate;
+		@Override
+		public void initialize(ValidProductType constraintAnnotation) {
+			this.allowedTypes = Arrays.asList(constraintAnnotation.types());
+			this.messageTemplate = constraintAnnotation.message();
+		}
+		@Override
+		public boolean isValid(String value, ConstraintValidatorContext context) {
+			if (value == null) return false;
+			if (!allowedTypes.contains(value)) {
+				// Customize the message dynamically
+				context.disableDefaultConstraintViolation();
+				context.buildConstraintViolationWithTemplate(
+						messageTemplate.replace("{types}", String.join(", ", allowedTypes))
+				).addConstraintViolation();
+				return false;
+			}
+			return true;
+		}
+	}
+
+	Example:
+	===============================
+	public class ProductDTO {
+		private String name;
+		@ValidProductType(types = {"Electronics", "Clothing", "Books"})
+		private String productType;
+		private double price;
+	}
+
+	
+
+use case : let’s say you find a bug in production environment and now you want to debug that scenario ,How can you do that from your local ?
+	1) Identify failing API & payload from prod logs.
+	2) Copy a subset of production DB locally.
+	3) Run Spring Boot locally with the same profile.
+	4) Attach debugger and set breakpoints around the failing logic.
+	5) Replay the API call with Postman or test scripts.
+	6) Inspect variables, service calls, and logs to find the root cause.
+
+How can you enable a specific environment without using profiles? OR what is the alternative to profiles to achieving same use case ?
+1) Using Externalized Configuration (Property / YAML Files)
+Option A: Specify Config File at Runtime
+	java -jar myapp.jar --spring.config.location=file:/path/to/config/application-prod.yml
+Option B: Specify Config File via Environment Variable
+	export SPRING_CONFIG_LOCATION=/path/to/config/application-prod.yml
+	java -jar myapp.jar
+2) Use Command Line Arguments
+java -jar myapp.jar \
+    --spring.datasource.url=jdbc:oracle:thin:@prod-db:1521:ORCL \
+    --spring.datasource.username=produser \
+    --spring.datasource.password=prodpass
+3) Use Environment Variables: Spring Boot reads OS environment variables automatically.
+	export SPRING_DATASOURCE_URL=jdbc:oracle:thin:@prod-db:1521:ORCL
+	export SPRING_DATASOURCE_USERNAME=produser
+	export SPRING_DATASOURCE_PASSWORD=prodpass
+	java -jar myapp.jar
+4) Conditional Beans with Custom Properties: Instead of using @Profile("dev"), you can use a custom property:
+	# application.yml
+	app.env=prod
+	@Configuration
+	public class DataSourceConfig {
+		@Value("${app.env}")
+		private String env;
+		@Bean
+		public DataSource dataSource() {
+			if ("prod".equals(env)) {
+				return createProdDataSource();
+			} else {
+				return createDevDataSource();
+			}
+		}
+	}
+5) Use Spring Environment Programmatically
+	@Autowired
+	private Environment environment;
+	public void checkEnv() {
+		String env = environment.getProperty("app.env");
+		if ("prod".equals(env)) {
+			// configure production-specific logic
+		}
+	}
+6) Use @Conditional or Custom Condition Classes: Spring Boot supports @Conditional to load beans based on a condition.
+	@Bean
+	@Conditional(ProdCondition.class)
+	public DataSource prodDataSource() {
+		return createProdDataSource();
+	}
+
+
+	
+
+
+
+What is the difference between @Profile & @ConditioOnXXX ?
+	@Profile is used to load beans based on the active Spring profile, such as dev or prod. For example, beans annotated with @Profile("prod") are only loaded if the prod profile is active. On the other hand, @Conditional and its variations like @ConditionalOnProperty provide more flexible, fine-grained control. They allow beans to be loaded based on properties, classpath availability, missing beans, or custom conditions, making them suitable for runtime-based configuration rather than predefined profiles.
+
+
+What is AOP ?
+	AOP (Aspect-Oriented Programming) is a programming paradigm that allows you to separate cross-cutting concerns from your business logic. It’s widely used in Spring to handle concerns that affect multiple parts of an application, like logging, security, transactions, or caching, without cluttering the core business code.
+	
+	| Term              | Meaning                                                                                                                |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **Aspect**        | A module that encapsulates a cross-cutting concern (e.g., logging, security).                                          |
+| **Join Point**    | A point during the execution of a program (e.g., method execution, exception).                                         |
+| **Advice**        | Action taken by an aspect at a join point. Types: `@Before`, `@After`, `@Around`, `@AfterReturning`, `@AfterThrowing`. |
+| **Pointcut**      | Expression that matches one or more join points. Defines **where** advice should be applied.                           |
+| **Weaving**       | Process of linking aspects with target objects. Can happen at compile-time, load-time, or runtime.                     |
+| **Target Object** | The object being advised by an aspect.                                                                                 |
+
+
+What is pointcut & join Points in AOP ?
+	A Join Point is a specific point in the execution of a program where an aspect can be applied.
+	In Spring AOP, a join point is always a method execution (Spring AOP is proxy-based, so it only intercepts method calls).
+
+		| Join Point Type          | Example                                    |
+		| ------------------------ | ------------------------------------------ |
+		| Method execution         | Calling `productService.getProduct("101")` |
+		| Exception thrown         | When a method throws `RuntimeException`    |
+		| Method returning a value | After `getProduct` returns "Product-101"   |
+
+
+What are different type of advice ?
+
+
+use case — can I use AOP to evaluate performance of a method or is this possible to design a logging framework to capture request and response body of a method ?
+	Yes, AOP is perfect for evaluating performance or logging request/response bodies because these are cross-cutting concerns. Using @Around advice, I can intercept method calls to measure execution time or capture inputs and outputs without changing the business code. This approach makes the monitoring and logging framework centralized, reusable, and maintainable.
 
 
 
