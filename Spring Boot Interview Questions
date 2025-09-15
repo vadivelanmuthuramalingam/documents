@@ -1093,25 +1093,278 @@ use case — can I use AOP to evaluate performance of a method or is this possib
 
 
 Questions on Spring Boot part- 6
-
-
 How does your application interact with the database and which frameworks are you using?
+	Spring Data JPA + Hibernate → ORM, simplifies CRUD, relationships, and query abstraction
+	Spring Data Redis (Jedis client) → caching, fast key-value lookups
+	HikariCP → database connection pooling (default in Spring Boot)
+
+JdbcTemplate (optional use case) → direct SQL execution, batch updates, performance tuning
 Why is it important to configure a physical naming strategy?
+	Configuring a physical naming strategy is important because it ensures consistency between our Java entity field names and the actual database schema. For example, Java typically uses camelCase while databases often use snake_case. Without it, Hibernate might generate table/column names that don’t exist, leading to runtime errors. By using SpringPhysicalNamingStrategy, we automatically map productName to product_name and ProductCategory to product_category, avoiding mismatches and reducing boilerplate annotations
+	
+	
 What are the key benefits of using Spring Data JPA ?
+| Benefit                              | Explanation                                                                                                         | Example                                                                                     |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **1. Simplified Data Access**        | Eliminates boilerplate DAO code. You just define repository interfaces, and Spring generates implementations.       | `interface ProductRepository extends JpaRepository<Product, Long>` gives you CRUD for free. |
+| **2. Powerful Query Abstraction**    | Supports derived query methods, JPQL, native SQL, and `@Query` annotation.                                          | `findByProductName(String name)` auto-generates query.                                      |
+| **3. Transaction Management**        | Works seamlessly with Spring’s `@Transactional`, handling commit/rollback automatically.                            | Annotate service methods with `@Transactional`.                                             |
+| **4. Consistency Across Databases**  | Hibernate (default JPA provider) abstracts DB differences, so code is portable across Oracle, MySQL, Postgres, etc. | Same repository works across different RDBMS.                                               |
+| **5. Paging and Sorting Built-In**   | Provides `Pageable` and `Sort` APIs for efficient data retrieval.                                                   | `findAll(PageRequest.of(0, 10, Sort.by("price")))`                                          |
+| **6. Integration with Spring Boot**  | Auto-configures datasource, connection pool (HikariCP), transaction manager, and repositories.                      | Just add `spring-boot-starter-data-jpa`.                                                    |
+| **7. Auditing Support**              | Tracks creation & update timestamps and user details with annotations.                                              | `@CreatedDate`, `@LastModifiedDate`.                                                        |
+| **8. Entity Relationships Handling** | Simplifies working with associations like `@OneToMany`, `@ManyToOne`, `@ManyToMany`.                                | Automatically manages joins and cascades.                                                   |
+| **9. Caching Support**               | Works with first-level (Session) and second-level caches (EhCache, Redis, etc.) for performance.                    | Frequently queried entities served from cache.                                              |
+| **10. Reduces Human Errors**         | Centralized repository pattern → fewer raw SQL queries → less prone to typos or mismatches.                         | Avoids hand-written SQL for basic CRUD.                                                     |
+
+
+
+
+
 What are the differences between Hibernate, JPA, and Spring Data JPA?
+
+
 How can you connect multiple databases or data sources in a single application?
+	Multi-Tenancy in Spring Boot (Using AbstractRoutingDataSource)
+	
+	public class TenantContext {
+		private static final ThreadLocal<String> currentTenant = new ThreadLocal<>();
+		public static void setTenantId(String tenantId) {
+			currentTenant.set(tenantId);
+		}
+		public static String getTenantId() {
+			return currentTenant.get();
+		}
+		public static void clear() {
+			currentTenant.remove();
+		}
+	}
+	public class TenantRoutingDataSource extends AbstractRoutingDataSource {
+		@Override
+		protected Object determineCurrentLookupKey() {
+			// Pick tenantId from context (set per request)
+			return TenantContext.getTenantId();
+		}
+	}
+	@Configuration
+	public class DataSourceConfig {
+		@Bean
+		public DataSource tenantDataSource() {
+			TenantRoutingDataSource routingDataSource = new TenantRoutingDataSource();
+			Map<Object, Object> dataSources = new HashMap<>();
+			DataSource tenant1 = DataSourceBuilder.create()
+					.url("jdbc:mysql://localhost:3306/tenant1db")
+					.username("user1")
+					.password("pass1")
+					.build();
+			DataSource tenant2 = DataSourceBuilder.create()
+					.url("jdbc:mysql://localhost:3306/tenant2db")
+					.username("user2")
+					.password("pass2")
+					.build();
+			dataSources.put("TENANT_1", tenant1);
+			dataSources.put("TENANT_2", tenant2);
+			routingDataSource.setTargetDataSources(dataSources);
+			routingDataSource.setDefaultTargetDataSource(tenant1);
+			return routingDataSource;
+		}
+	}
+	@Component
+	public class TenantInterceptor implements HandlerInterceptor {
+		@Override
+		public boolean preHandle(HttpServletRequest request,
+								 HttpServletResponse response,
+								 Object handler) {
+			String tenantId = request.getHeader("X-Tenant-ID");
+			if (tenantId == null) {
+				tenantId = "TENANT_1"; // default
+			}
+			TenantContext.setTenantId(tenantId);
+			return true;
+		}
+		@Override
+		public void afterCompletion(HttpServletRequest request,
+									HttpServletResponse response,
+									Object handler,
+									Exception ex) {
+			TenantContext.clear();
+		}
+	}
+
+
+
 What are the different ways to define custom queries in Spring Data JPA ?
+
+1. Derived Query Methods	
+	Spring parses method names and generates SQL automatically	
+	java List<Product> findByProductType(String type);	
+	
+	Simple queries that follow naming conventions
+2. @Query Annotation (JPQL)	
+	Write JPQL queries directly inside repository methods	
+	java @Query("SELECT p FROM Product p WHERE p.productType = :type") 
+	List<Product> findByType(@Param("type") String type);	
+	
+	More control, joins, aggregations
+3. @Query with Native SQL	
+	Use raw SQL instead of JPQL	 
+	@Query(value = "SELECT * FROM products WHERE product_type = :type", nativeQuery = true) 
+	List<Product> findByTypeNative(@Param("type") String type);	
+	
+	When JPQL can’t handle vendor-specific SQL
+4. Named Queries	
+	Predefine JPQL queries inside entity classes (@NamedQuery)	
+	
+	@Entity 
+	@NamedQuery(name="Product.findByType", query="SELECT p FROM Product p WHERE p.productType = :type") 
+	class Product {} 
+	Then use: List<Product> findByType(@Param("type") String type);	
+	
+	Queries reused across multiple repositories
+5. Named Native Queries	
+	Predefine raw SQL in entity class (@NamedNativeQuery)	
+	@NamedNativeQuery(name="Product.findByTypeNative", query="SELECT * FROM products WHERE product_type = ?", resultClass=Product.class)	
+	
+	For complex vendor-specific SQL
+6. Specifications (Criteria API)	
+	Build dynamic queries programmatically	
+	public class ProductSpecs { 
+		public static Specification<Product> hasType(String type) { 
+			return (root, query, cb) -> cb.equal(root.get("productType"), type); 
+		} 
+	} 
+	
+	Usage: repo.findAll(ProductSpecs.hasType("Electronics"));	
+	Dynamic filtering, search screens
+7. Query by Example (QBE)	
+	Create probe objects to query	
+	Product probe = new Product(); 
+	probe.setProductType("Electronics"); 
+	Example<Product> example = Example.of(probe); 
+	List<Product> result = repo.findAll(example);	
+	
+	When queries depend on user input fields
+8. Custom Repository Implementation	
+	Write your own DAO logic beyond Spring Data’s auto-gen	
+	public interface ProductRepositoryCustom { 
+		List<Product> findProductsCustomLogic(); 
+	} 
+	
+	@Repository 
+	public class ProductRepositoryImpl implements ProductRepositoryCustom { 
+		@PersistenceContext 
+		private EntityManager em; 
+		public List<Product> findProductsCustomLogic() { 
+			return em.createQuery("SELECT p FROM Product p").getResultList(); 
+		} 
+	}
+
+
+
 Can you provide example to find results based on some range
 Ex 1 : Find list of employees whose age in between 30 lakh to 35 lakh
 Ex 2 : find avg salary of employees in an organization
 
-8. How will you define entity relationships or association mapping in Spring Data JPA?
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {
 
+    // Derived query by method naming
+    List<Employee> findBySalaryBetween(Double minSalary, Double maxSalary);
+}
+
+
+@Query("SELECT e FROM Employee e WHERE e.salary BETWEEN :min AND :max")
+List<Employee> findEmployeesInSalaryRange(@Param("min") Double min, @Param("max") Double max);
+
+
+@Query(value = "SELECT * FROM employees WHERE salary BETWEEN :min AND :max", nativeQuery = true)
+List<Employee> findEmployeesInSalaryRangeNative(@Param("min") Double min, @Param("max") Double max);
+
+
+@Query("SELECT AVG(e.salary) FROM Employee e")
+Double findAverageSalary();
+
+@Query(value = "SELECT AVG(salary) FROM employees", nativeQuery = true)
+Double findAverageSalaryNative();
+
+
+
+
+8. How will you define entity relationships or association mapping in Spring Data JPA?
 (Use Case: Consider an e-commerce application where each customer can have multiple orders. Here, a Customer entity can be associated with multiple Order entities.)
+In Spring Data JPA, we define entity relationships (association mapping) using annotations like @OneToOne, @OneToMany, @ManyToOne, @ManyToMany.
+
 
 9. Is this possible to execute Join query in Spring Data JPA ? If yes, how can you add some insights ?
+1. JPQL (Entity-based Join)
+	@Query("SELECT c FROM Customer c JOIN c.orders o WHERE o.price > :price")
+List<Customer> findCustomersWithOrdersAbove(@Param("price") Double price);
+
+2. JPQL with Fetch Join (Solve N+1 Problem)
+	@Query("SELECT c FROM Customer c JOIN FETCH c.orders WHERE c.id = :customerId")
+Customer findCustomerWithOrders(@Param("customerId") Long customerId);
+
+3. Native SQL JOIN
+	@Query(value = "SELECT c.* FROM customers c JOIN orders o ON c.id = o.customer_id WHERE o.price > :price",
+       nativeQuery = true)
+List<Customer> findCustomersWithOrdersNative(@Param("price") Double price);
+
+4. Projection with JOIN
+		public interface CustomerOrderView {
+			String getCustomerName();
+			String getProductName();
+		}
+
+		@Query("SELECT c.name AS customerName, o.productName AS productName " +
+			   "FROM Customer c JOIN c.orders o")
+		List<CustomerOrderView> fetchCustomerOrderDetails();
+
+5. Criteria API (Dynamic Joins)
+	public List<Customer> findCustomersWithOrdersCriteria(Double price) {
+		CriteriaBuilder cb = em.getCriteriaBuilder();
+		CriteriaQuery<Customer> query = cb.createQuery(Customer.class);
+		Root<Customer> customer = query.from(Customer.class);
+		Join<Customer, Order> orders = customer.join("orders");
+		query.select(customer).where(cb.greaterThan(orders.get("price"), price));
+		return em.createQuery(query).getResultList();
+	}
+
+
 
 10. How will you implement pagination & Sorting in Spring Data JPA ?
+
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+    Page<Employee> findBySalaryGreaterThan(Double salary, Pageable pageable);
+}
+
+@GetMapping("/employees")
+public Page<Employee> getEmployees(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "5") int size) {
+
+    Pageable pageable = PageRequest.of(page, size);
+    return employeeRepository.findAll(pageable);
+}
+
+//Paginration + Sorting
+@GetMapping("/employees/paged-sorted")
+public Page<Employee> getEmployeesPagedAndSorted(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "5") int size,
+        @RequestParam(defaultValue = "name") String sortBy) {
+
+    Pageable pageable = PageRequest.of(page, size, Sort.by(sortBy));
+    return employeeRepository.findAll(pageable);
+}
+
+
+
+
+
+
+
+
+
+
 
 Questions on Spring Boot part- 7
 
