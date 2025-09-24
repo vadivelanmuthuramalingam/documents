@@ -9,3 +9,18 @@ sonar.issue.ignore.multicriteria.e1.resourceKey=**/*.java
 sonar.issue.ignore.multicriteria=e2
 sonar.issue.ignore.multicriteria.e2.ruleKey=java:S00100
 sonar.issue.ignore.multicriteria.e2.resourceKey=**/com/example/badcode/**/*.java
+
+
+
+sonar.projectKey=my-project
+sonar.sources=src
+
+# Exclude S106 for all files
+sonar.issue.ignore.multicriteria=e1
+sonar.issue.ignore.multicriteria.e1.ruleKey=java:S106
+sonar.issue.ignore.multicriteria.e1.resourceKey=**/*.java
+
+# Exclude S00100 only for a package
+sonar.issue.ignore.multicriteria=e2
+sonar.issue.ignore.multicriteria.e2.ruleKey=java:S00100
+sonar.issue.ignore.multicriteria.e2.resourceKey=**/com/example/badcode/**/*.java
