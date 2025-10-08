@@ -160,3 +160,72 @@ public class JsonLockBackEvent extends PatternLayout {
 
 
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.spi.LocationAwareLogger;
+
+public class MaskingLogger {
+
+    private static final String FQCN = MaskingLogger.class.getName();
+
+    private final LocationAwareLogger logger;
+
+    public MaskingLogger(Class<?> clazz) {
+        Logger baseLogger = LoggerFactory.getLogger(clazz);
+        if (baseLogger instanceof LocationAwareLogger) {
+            this.logger = (LocationAwareLogger) baseLogger;
+        } else {
+            throw new IllegalStateException("Logger is not LocationAwareLogger");
+        }
+    }
+
+    public void info(String msg) {
+        logger.log(null, FQCN, LocationAwareLogger.INFO_INT, msg, null, null);
+    }
+
+    public void debug(String msg) {
+        logger.log(null, FQCN, LocationAwareLogger.DEBUG_INT, msg, null, null);
+    }
+
+    public void mask(String msg) {
+        String maskedMsg = maskSensitiveData(msg);
+        // Use INFO level for example here, but you can choose any
+        logger.log(null, FQCN, LocationAwareLogger.INFO_INT, maskedMsg, null, null);
+    }
+
+    private String maskSensitiveData(String msg) {
+        // Your masking logic
+        return msg.replaceAll("(\\d{4})\\d{8}(\\d{4})", "$1********$2");
+    }
+}
+
+
+
+
+public class MyClass {
+    private static final MaskingLogger log = new MaskingLogger(MyClass.class);
+
+    public void test() {
+        log.info("This is info");
+        log.mask("Credit card: 1234567890123456");
+    }
+}
+
+
+
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="debug">
+    <appender-ref ref="CONSOLE" />
+  </root>
+</configuration>
+
+
+
+
