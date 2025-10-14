@@ -24,8 +24,8 @@ while [ ! -z "$url" ]; do
   
   response=$(curl -s --insecure -u "$BITBUCKET_USER:$BITBUCKET_PASS" "$url")
   
-  # Extract repo slugs and append to the persistent file
-  echo "$response" | grep -o '"slug": *"[^"]*"' | sed 's/"slug": *"\([^"]*\)"/\1/' >> "$REPO_LIST_FILE"
+  # Improved slug extraction — split JSON by commas, grep slug lines, extract slug value
+  echo "$response" | tr ',' '\n' | grep '"slug":' | sed 's/.*"slug":[[:space:]]*"\([^"]*\)".*/\1/' >> "$REPO_LIST_FILE"
   
   # Extract next URL if exists
   next_url=$(echo "$response" | grep -o '"next": *"[^"]*"' | sed 's/"next": *"\([^"]*\)"/\1/')
