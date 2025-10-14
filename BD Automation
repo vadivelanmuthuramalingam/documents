@@ -20,9 +20,15 @@ while [ ! -z "$url" ]; do
   
   # Extract repo slugs using jq (install jq if needed)
   repo_names=$(echo "$response" | jq -r '.values[].slug')
-  repos+=($repo_names)
+ 
+  # Print each repo name found in this batch
+  for repo in $repo_names; do
+    echo "Found repo: $repo"
+    repos+=($repo)
+  done
   
   url=$(echo "$response" | jq -r '.next // empty')
+  
 done
 
 # Summary report
