@@ -27,7 +27,9 @@ while [ ! -z "$url" ]; do
     repos+=($repo)
   done
   
-  url=$(echo "$response" | jq -r '.next // empty')
+  next_url=$(echo "$response" | grep -o '"next": *"[^"]*"' | sed 's/"next": *"\([^"]*\)"/\1/')
+  
+  url="$next_url"
   
 done
 
