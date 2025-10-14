@@ -1,51 +1,76 @@
 #!/bin/bash
 
-# Set these variables appropriately
+# === CONFIGURATION ===
 BITBUCKET_USER="your_username"
 BITBUCKET_PASS="your_password_or_app_password"
 BITBUCKET_WORKSPACE="your_workspace_or_project_key"
-BITBUCKET_API_URL="https://api.bitbucket.org/2.0/repositories/${BITBUCKET_WORKSPACE}"
 LOCAL_DIR="/path/to/local/repos"
+BITBUCKET_API_URL="https://api.bitbucket.org/2.0/repositories/${BITBUCKET_WORKSPACE}"
 
-# Create local directory if not exists
+# === SETUP ===
 mkdir -p "$LOCAL_DIR"
-cd "$LOCAL_DIR" || exit 1
+cd "$LOCAL_DIR" || { echo "Failed to cd into $LOCAL_DIR"; exit 1; }
 
-# Temporary file to store repo names
-tmpfile=$(mktemp)
+REPO_LIST_FILE="${LOCAL_DIR}/repos-list.txt"
+
+# Clear the repo list file before start
+> "$REPO_LIST_FILE"
 
 url="$BITBUCKET_API_URL"
 
-# Fetch all repos (handle pagination)
+# === FETCH REPOS FROM BITBUCKET (handle pagination) ===
 while [ ! -z "$url" ]; do
   echo "Fetching from URL: $url"
   
-  # Fetch API response with curl (skip SSL verify if needed)
   response=$(curl -s --insecure -u "$BITBUCKET_USER:$BITBUCKET_PASS" "$url")
   
-  # Extract repo slugs ("slug": "repo-name") and append to tmpfile
-  echo "$response" | grep -o '"slug": *"[^"]*"' | sed 's/"slug": *"\([^"]*\)"/\1/' >> "$tmpfile"
+  # Extract repo slugs and append to the persistent file
+  echo "$response" | grep -o '"slug": *"[^"]*"' | sed 's/"slug": *"\([^"]*\)"/\1/' >> "$REPO_LIST_FILE"
   
-  # Get next page URL if exists
+  # Extract next URL if exists
   next_url=$(echo "$response" | grep -o '"next": *"[^"]*"' | sed 's/"next": *"\([^"]*\)"/\1/')
   
   url="$next_url"
 done
 
-# Read all repo names into an array
+# === READ REPOS FROM FILE INTO ARRAY ===
 repos=()
 while IFS= read -r line; do
-  # Trim whitespace just in case
-  repo=$(echo "$line" | xargs)
+  repo=$(echo "$line" | xargs)  # trim whitespace
   repos+=("$repo")
-done < "$tmpfile"
+done < "$REPO_LIST_FILE"
 
-# Delete temp file
-rm "$tmpfile"
-
+# === PROCESS EACH REPO: CLONE/UPDATE + MAVEN BUILD ===
 declare -A build_results
 
-# Process each repo
 for repo in "${repos[@]}"; do
   echo "Processing repo: $repo"
   
+  if [ -d "$repo" ]; then
+    echo "Updating existing repo $repo"
+    cd "$repo" || { echo "Failed to cd into $repo"; continue; }
+    git pull
+  else
+    echo "Cloning repo $repo"
+    git clone "https://bitbucket.org/${BITBUCKET_WORKSPACE}/${repo}.git"
+    cd "$repo" || { echo "Failed to cd into $repo after clone"; continue; }
+  fi
+  
+  # Run Maven build skipping tests
+  mvn clean install -DskipTests
+  if [ $? -eq 0 ]; then
+    echo "Build SUCCESS for $repo"
+    build_results["$repo"]="SUCCESS"
+  else
+    echo "Build FAILED for $repo"
+    build_results["$repo"]="FAILED"
+  fi
+  
+  cd "$LOCAL_DIR" || { echo "Failed to cd back to $LOCAL_DIR"; exit 1; }
+done
+
+# === PRINT BUILD SUMMARY ===
+echo "----- Build Summary -----"
+for repo in "${!build_results[@]}"; do
+  echo "$repo : ${build_results[$repo]}"
+done
