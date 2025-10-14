@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# Variables - set accordingly
+BITBUCKET_USER="your_username"
+BITBUCKET_PASS="your_password_or_app_password"
+BITBUCKET_WORKSPACE="your_workspace_or_project_key"
+BITBUCKET_API_URL="https://api.bitbucket.org/2.0/repositories/${BITBUCKET_WORKSPACE}"
+LOCAL_DIR="/path/to/local/repos"
+
+# Create local dir if not exist
+mkdir -p "$LOCAL_DIR"
+cd "$LOCAL_DIR"
+
+# Fetch all repos from Bitbucket API (paginated)
+repos=()
+url="$BITBUCKET_API_URL"
+while [ ! -z "$url" ]; do
+  # Added --insecure here to skip SSL cert validation
+  response=$(curl -s --insecure -u "$BITBUCKET_USER:$BITBUCKET_PASS" "$url")
+  
+  # Extract repo slugs using jq (install jq if needed)
+  repo_names=$(echo "$response" | jq -r '.values[].slug')
+  repos+=($repo_names)
+  
+  url=$(echo "$response" | jq -r '.next // empty')
+done
+
+# Summary report
+declare -A build_results
+
+# Loop over repos
+for repo in "${repos[@]}"; do
+  echo "Processing repo: $repo"
+  
+  if [ -d "$repo" ]; then
+    echo "Updating existing repo $repo"
+    cd "$repo"
+    git pull
+  else
+    echo "Cloning repo $repo"
+    git clone "https://bitbucket.org/${BITBUCKET_WORKSPACE}/${repo}.git"
+    cd "$repo"
+  fi
+  
+  # Run maven build
+  mvn clean install -DskipTests
+  if [ $? -eq 0 ]; then
+    echo "Build SUCCESS for $repo"
+    build_results["$repo"]="SUCCESS"
+  else
+    echo "Build FAILED for $repo"
+    build_results["$repo"]="FAILED"
+  fi
+  
+  # Go back to local dir root for next repo
+  cd "$LOCAL_DIR"
+done
+
+echo "----- Build Summary -----"
+for repo in "${!build_results[@]}"; do
+  echo "$repo : ${build_results[$repo]}"
+done
