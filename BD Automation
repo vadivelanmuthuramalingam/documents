@@ -19,7 +19,8 @@ while [ ! -z "$url" ]; do
   response=$(curl -s --insecure -u "$BITBUCKET_USER:$BITBUCKET_PASS" "$url")
   
   # Extract repo slugs using jq (install jq if needed)
-  repo_names=$(echo "$response" | jq -r '.values[].slug')
+   repo_names=$(echo "$response" | grep -o '"slug": *"[^"]*"' | sed 's/"slug": *"\([^"]*\)"/\1/')
+  
  
   # Print each repo name found in this batch
   for repo in $repo_names; do
