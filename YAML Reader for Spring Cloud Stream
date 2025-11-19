@@ -200,3 +200,34 @@ public class YamlToCsvConverter {
 
 
 
+
+
+
+
+private static Map<String, Map<String, String>> extractEventTopics(Map<String, Object> root) {
+
+    Map<String, Map<String, String>> topicMap = new HashMap<>();
+
+    Map<String, Object> eventTopics = getMap(root, "event-topics");
+    if (eventTopics == null) return topicMap;
+
+    Map<String, Object> topics = getMap(eventTopics, "topics");
+    if (topics == null) return topicMap;
+
+    for (String keyName : topics.keySet()) {
+        Map<String, Object> topicBlock = getMap(topics, keyName);
+
+        String request = getStr(topicBlock, "requestTopicName");
+        String response = getStr(topicBlock, "responseTopicName");
+        String failure = getStr(topicBlock, "failureTopicName");
+
+        Map<String, String> values = new HashMap<>();
+        values.put("requestTopicName", request);
+        values.put("responseTopicName", response);
+        values.put("failureTopicName", failure);
+
+        topicMap.put(keyName, values);
+    }
+
+    return topicMap;
+}
