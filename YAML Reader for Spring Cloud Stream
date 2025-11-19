@@ -1,0 +1,202 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>com.example</groupId>
+    <artifactId>yaml-to-csv-converter</artifactId>
+    <version>1.0.0</version>
+
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!-- SnakeYAML to read YAML files -->
+        <dependency>
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <version>2.2</version>
+        </dependency>
+
+        <!-- Apache Commons CSV for safe CSV generation -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+    </dependencies>
+
+</project>
+
+
+
+
+
+
+
+
+
+
+package com.example;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
+
+import java.io.*;
+import java.util.*;
+
+public class YamlToCsvConverter {
+
+    public static void main(String[] args) {
+        try {
+            String yamlFile = "src/main/resources/application.yml";
+            String csvFile = "output.csv";
+
+            Map<String, Object> yamlData = loadYaml(yamlFile);
+            List<Map<String, String>> records = extractSolaceStreamData(yamlData);
+            writeCsv(csvFile, records);
+
+            System.out.println("CSV Generated Successfully: " + csvFile);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Failed to process YAML → CSV: " + e.getMessage());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Load YAML
+    // ------------------------------------------------------------------
+    private static Map<String, Object> loadYaml(String filePath) throws FileNotFoundException {
+        Yaml yaml = new Yaml(new SafeConstructor());
+        InputStream inputStream = new FileInputStream(filePath);
+        return yaml.load(inputStream);
+    }
+
+    // ------------------------------------------------------------------
+    // Extract Solace + Spring Cloud Stream Function Metadata
+    // ------------------------------------------------------------------
+    private static List<Map<String, String>> extractSolaceStreamData(Map<String, Object> root) {
+
+        List<Map<String, String>> records = new ArrayList<>();
+
+        Map<String, Object> spring = getMap(root, "spring");
+        Map<String, Object> cloud = getMap(spring, "cloud");
+
+        Map<String, Object> function = getMap(cloud, "function");
+        String definitions = function != null ? (String) function.getOrDefault("definition", "") : "";
+
+        Map<String, Object> stream = getMap(cloud, "stream");
+        Map<String, Object> bindings = getMap(stream, "bindings");
+
+        Map<String, Object> solace = getMap(stream, "solace");
+        Map<String, Object> solaceBindings = getMap(solace, "bindings");
+
+        if (bindings == null) {
+            System.err.println("No stream.bindings found in YAML");
+            return records;
+        }
+
+        for (String bindingName : bindings.keySet()) {
+
+            Map<String, Object> binding = getMap(bindings, bindingName);
+
+            String destination = getStr(binding, "destination");
+            String group = getStr(binding, "group");
+
+            // Solace Specific
+            Map<String, Object> solaceConfig = getMap(solaceBindings, bindingName);
+
+            String queue = "";
+            String topic = "";
+
+            if (solaceConfig != null && solaceConfig.containsKey("consumer")) {
+                Map<String, Object> consumer = getMap(solaceConfig, "consumer");
+
+                queue = getStr(consumer, "queueName");
+                topic = getStr(consumer, "topicSubscriptions");
+            }
+
+            String functionName = extractFunctionName(bindingName);
+
+            Map<String, String> row = new LinkedHashMap<>();
+            row.put("FunctionName", functionName);
+            row.put("BindingName", bindingName);
+            row.put("ConsumerGroup", group);
+            row.put("Destination", destination);
+            row.put("QueueName", queue);
+            row.put("TopicSubscription", topic);
+
+            records.add(row);
+        }
+
+        return records;
+    }
+
+    // Extract function portion of binding name
+    private static String extractFunctionName(String bindingName) {
+        if (bindingName.contains("-in-"))
+            return bindingName.substring(0, bindingName.indexOf("-in-"));
+        if (bindingName.contains("-out-"))
+            return bindingName.substring(0, bindingName.indexOf("-out-"));
+        return bindingName;
+    }
+
+    // ------------------------------------------------------------------
+    // CSV Writer
+    // ------------------------------------------------------------------
+    private static void writeCsv(String filePath, List<Map<String, String>> rows) throws IOException {
+
+        try (CSVPrinter printer = new CSVPrinter(
+                new FileWriter(filePath),
+                CSVFormat.DEFAULT.builder()
+                        .setHeader("FunctionName", "BindingName", "ConsumerGroup",
+                                "Destination", "QueueName", "TopicSubscription")
+                        .build()
+        )) {
+
+            for (Map<String, String> row : rows) {
+                printer.printRecord(
+                        row.get("FunctionName"),
+                        row.get("BindingName"),
+                        row.get("ConsumerGroup"),
+                        row.get("Destination"),
+                        row.get("QueueName"),
+                        row.get("TopicSubscription")
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Helper Methods
+    // ------------------------------------------------------------------
+    private static Map<String, Object> getMap(Map<String, Object> src, String key) {
+        if (src == null) return null;
+        Object val = src.get(key);
+        return (val instanceof Map) ? (Map<String, Object>) val : null;
+    }
+
+    private static String getStr(Map<String, Object> map, String key) {
+        if (map == null) return "";
+        Object val = map.get(key);
+        return val != null ? val.toString() : "";
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
