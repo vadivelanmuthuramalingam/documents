@@ -1,0 +1,36 @@
+
+SELECT
+    NVL(
+        MAX(t2.firstname) KEEP (
+            DENSE_RANK LAST ORDER BY t2.updated_time
+        ),
+        t1.firstname
+    ) AS firstname,
+
+    NVL(
+        MAX(t2.lastname) KEEP (
+            DENSE_RANK LAST ORDER BY t2.updated_time
+        ),
+        t1.lastname
+    ) AS lastname,
+
+    LISTAGG(t1.vcaid, ', ') 
+        WITHIN GROUP (ORDER BY t1.vcaid) AS active_vcaids,
+
+    COUNT(DISTINCT t1.vcaid) AS active_vcaid_count
+
+FROM table1 t1
+LEFT JOIN table2 t2
+    ON t1.vcaid = t2.vcaid
+   AND t2.status = 'Modified'
+
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM table2 c
+    WHERE c.vcaid = t1.vcaid
+      AND c.status = 'Cancelled'
+)
+
+GROUP BY t1.id, t1.firstname, t1.lastname;
+
+
