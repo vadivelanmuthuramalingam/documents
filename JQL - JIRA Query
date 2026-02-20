@@ -1,0 +1,35 @@
+1️⃣ Tasks Not Started As Per Plan
+status = "To Do"
+AND startDate <= now()
+AND sprint in openSprints()
+
+2️⃣ Tasks Not Completed As Per Plan
+status != Done
+AND due <= now()
+AND sprint in openSprints()
+
+3️⃣ Spillover / Carry-Forward Tasks
+status != Done
+AND sprint in closedSprints()
+
+4️⃣ Wrong Estimation – Effort Mismatch
+timespent > originalEstimate
+AND status = Done
+
+5️⃣ Lead Estimation Accuracy Scorecard
+reporter = <LeadName>
+AND status = Done
+
+6️⃣ Tasks Started Late
+status changed to "In Progress" AFTER startDate
+
+📊 Gadgets:
+
+Sprint Burndown
+
+Time Tracking Report
+
+Issue Statistics by Assignee
+
+Pie Chart – Spillover by Lead
+
