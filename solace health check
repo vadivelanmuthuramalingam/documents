@@ -144,6 +144,109 @@ public class DownstreamHealthIndicator implements HealthIndicator {
 }
 
 
+🧱 1. Capture the Tomcat Connector
+@Component
+public class TomcatConnectorHolder
+        implements WebServerFactoryCustomizer<TomcatServletWebServerFactory> {
+
+    private Connector connector;
+
+    @Override
+    public void customize(TomcatServletWebServerFactory factory) {
+        factory.addConnectorCustomizers(connector -> this.connector = connector);
+    }
+
+    public void pause() {
+        if (connector != null) {
+            connector.pause();
+        }
+    }
+
+    public void resume() {
+        if (connector != null) {
+            connector.resume();
+        }
+    }
+}
+
+🛑 2. Trigger Graceful Shutdown Manually
+@Component
+public class GracefulShutdownManager {
+
+    private final TomcatConnectorHolder connectorHolder;
+    private final InFlightTracker tracker;
+
+    public GracefulShutdownManager(
+            TomcatConnectorHolder connectorHolder,
+            InFlightTracker tracker) {
+        this.connectorHolder = connectorHolder;
+        this.tracker = tracker;
+    }
+
+    public void shutdown() {
+
+        // 1️⃣ Stop accepting new connections
+        connectorHolder.pause();
+
+        // 2️⃣ Wait for in-flight requests
+        long timeoutMs = 30000;
+        long start = System.currentTimeMillis();
+
+        while (tracker.count() > 0 &&
+               System.currentTimeMillis() - start < timeoutMs) {
+            try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+        }
+
+        // 3️⃣ Exit JVM
+        System.exit(1);
+    }
+}
+
+🧵 3. Track In-Flight Requests (Mandatory)
+@Component
+public class InFlightTracker {
+    private final AtomicInteger active = new AtomicInteger(0);
+    public void start() { active.incrementAndGet(); }
+    public void end() { active.decrementAndGet(); }
+    public int count() { return active.get(); }
+}
+
+
+@Component
+public class InFlightFilter implements Filter {
+
+    private final InFlightTracker tracker;
+
+    public InFlightFilter(InFlightTracker tracker) {
+        this.tracker = tracker;
+    }
+
+    @Override
+    public void doFilter(
+        ServletRequest req, ServletResponse res, FilterChain chain)
+        throws IOException, ServletException {
+
+        tracker.start();
+        try {
+            chain.doFilter(req, res);
+        } finally {
+            tracker.end();
+        }
+    }
+}
+
+
+🟡 Alternative 1: Close Spring ApplicationContext
+ConfigurableApplicationContext context;
+
+context.close();
+
+
+
+
+
+
+
 
 
 
