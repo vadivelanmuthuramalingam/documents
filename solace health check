@@ -1,0 +1,152 @@
+public class MinuteStats {
+
+    private final AtomicInteger success = new AtomicInteger(0);
+    private final AtomicInteger failure = new AtomicInteger(0);
+
+    public void recordSuccess() {
+        success.incrementAndGet();
+    }
+
+    public void recordFailure() {
+        failure.incrementAndGet();
+    }
+
+    public int getSuccess() {
+        return success.get();
+    }
+
+    public int getFailure() {
+        return failure.get();
+    }
+
+    public int getTotal() {
+        return success.get() + failure.get();
+    }
+}
+
+
+
+🧠 2. DownstreamStatsTracker (Auto Cleanup Included)
+
+@Component
+public class DownstreamStatsTracker {
+
+    /**
+     * Key  : minute (epochMinute)
+     * Value: success/failure stats for that minute
+     */
+    private final ConcurrentHashMap<Long, MinuteStats> minuteStatsMap =
+            new ConcurrentHashMap<>();
+
+    /** Keep only last N minutes */
+    private static final int RETENTION_MINUTES = 2;
+
+    private long currentMinute() {
+        return System.currentTimeMillis() / 60000;
+    }
+
+    public void recordSuccess() {
+        minuteStatsMap
+                .computeIfAbsent(currentMinute(), k -> new MinuteStats())
+                .recordSuccess();
+    }
+
+    public void recordFailure() {
+        minuteStatsMap
+                .computeIfAbsent(currentMinute(), k -> new MinuteStats())
+                .recordFailure();
+    }
+
+    public MinuteStats getStatsForMinute(long minute) {
+        return minuteStatsMap.get(minute);
+    }
+
+    /**
+     * Automatically clears old minute records
+     */
+    public void cleanupOldMinutes() {
+        long cutoffMinute = currentMinute() - RETENTION_MINUTES;
+
+        minuteStatsMap.keySet().removeIf(minute -> minute < cutoffMinute);
+    }
+}
+
+⏱️ 3. Scheduled Health Evaluator (Every Minute)
+@Component
+@EnableScheduling
+public class DownstreamHealthEvaluator {
+
+    private final DownstreamStatsTracker tracker;
+
+    private static final double FAILURE_THRESHOLD_PERCENT = 50.0;
+
+    public DownstreamHealthEvaluator(DownstreamStatsTracker tracker) {
+        this.tracker = tracker;
+    }
+
+    @Scheduled(fixedRate = 60000)
+    public void evaluateLastMinute() {
+
+        long lastMinute = (System.currentTimeMillis() / 60000) - 1;
+        MinuteStats stats = tracker.getStatsForMinute(lastMinute);
+
+        // Clean old data every cycle
+        tracker.cleanupOldMinutes();
+
+        if (stats == null || stats.getTotal() == 0) {
+            return;
+        }
+
+        double failureRate =
+                (stats.getFailure() * 100.0) / stats.getTotal();
+
+        if (failureRate > FAILURE_THRESHOLD_PERCENT) {
+
+            // ❌ Option A: Hard exit (not recommended for prod)
+            // System.exit(1);
+
+            // ✅ Option B: Mark health DOWN (recommended)
+            DownstreamHealthState.markUnhealthy();
+        }
+    }
+}
+
+❤️ 4. Health State Holder (Shared Flag)
+@Component
+public class DownstreamHealthState {
+
+    private static final AtomicBoolean unhealthy = new AtomicBoolean(false);
+
+    public static void markUnhealthy() {
+        unhealthy.set(true);
+    }
+
+    public static boolean isUnhealthy() {
+        return unhealthy.get();
+    }
+}
+
+
+
+
+@Component
+public class DownstreamHealthIndicator implements HealthIndicator {
+
+    @Override
+    public Health health() {
+        if (DownstreamHealthState.isUnhealthy()) {
+            return Health.down()
+                    .withDetail("reason", "High downstream failure rate")
+                    .build();
+        }
+        return Health.up().build();
+    }
+}
+
+
+
+
+
+
+
+
