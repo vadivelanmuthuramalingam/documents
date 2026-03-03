@@ -1,0 +1,478 @@
+Sort Live or Long Time
+Principles
+	QR contains ONLY a token
+	All validation happens in backend
+	Token is short-lived + one-time
+	Redis is the source of truth
+	HTTPS mandatory
+
+When QR opens your HTTPS URL in a browser, you can collect:
+| Signal          | Available |
+| --------------- | --------- |
+| User-Agent      | ✅         |
+| OS + Version    | ✅         |
+| Browser         | ✅         |
+| Screen size     | ✅         |
+| Timezone        | ✅         |
+| Language        | ✅         |
+| IP address      | ✅         |
+| TLS fingerprint | ✅         |
+
+
+
+Type Of QR Code
+	1. Web Site URL
+	2. Contact details (vCard)
+	3. Wi-Fi credentials
+	4. Text / Message
+	5. SMS or Email trigger
+	6. Payment information (very common in India 🇮🇳)
+	7. Location (Geo coordinates)
+	8. Calendar event
+	9. Authentication / Login data
+Backend validates:
+	token exists
+	token not expired
+	token not used already
+	token belongs to correct user/session
+
+
+{
+  "purpose": "KYC_ENINSHO",
+  "channel": "WEB",
+  "customerRefId": "CUST123456789",
+  "expirySeconds": 300,
+  "callbackUrl": "https://kyc.citibank.com/jp/result",
+  "uiLocale": "ja-JP"
+}
+
+| Field         | Required | Description         |
+| ------------- | -------- | ------------------- |
+| purpose       | ✅        | Business purpose    |
+| channel       | ✅        | WEB / BRANCH        |
+| customerRefId | ❌        | Internal reference  |
+| expirySeconds | ❌        | Default 300 sec     |
+| callbackUrl   | ✅        | Post-KYC redirect   |
+| uiLocale      | ❌        | Language preference |
+
+
+
+Response Contract (Citi API → UI)
+{
+  "sid": "9f3a2c82-fa4d-4d3a-9c8b-91d0a44e7b6a",
+  "qrCode": {
+    "type": "PNG",
+    "base64": "iVBORw0KGgoAAAANSUhEUgAA...",
+    "width": 300,
+    "height": 300
+  },
+  "qrContent": "https://kyc.citibank.com/jp/start?sid=9f3a2c82-fa4d-4d3a",
+  "expiresAt": "2026-02-25T10:45:30Z",
+  "status": "ACTIVE"
+}
+
+
+| State       | Meaning                |
+| ----------- | ---------------------- |
+| CREATED     | QR generated           |
+| ACTIVE      | Valid, not yet scanned |
+| IN_PROGRESS | App opened             |
+| USED        | KYC completed          |
+| EXPIRED     | TTL exceeded           |
+
+
+
+
+
+
+
+
+ 
+
+🌐 1. Website / URL
+
+Example: https://example.com
+
+Most common use
+Opens a website, app store page, or deep link
+
+Code:
+
+	https://www.mycompany.com/login
+
+Client behavior
+	Detects http:// or https://
+	Opens browser
+✔ Identified by URL scheme
+
+👤 2. Contact details (vCard)
+
+Data:
+	BEGIN:VCARD
+	VERSION:3.0
+	N:Kumar;Ravi
+	TEL:+919999999999
+	EMAIL:ravi@example.com
+	END:VCARD
+	Name
+Client behavior
+	Detects BEGIN:VCARD
+	Opens “Add Contact” screen
+
+✔ Identified by vCard format
+
+
+
+
+📶 3. Wi-Fi credentials
+
+Network name (SSID)
+Password
+
+Data:
+
+WIFI:T:WPA;S:MyWifi;P:password123;;
+
+Client behavior
+	Detects WIFI:
+	Prompts to connect to Wi-Fi
+
+✔ Identified by WIFI prefix
+
+Security type (WPA/WEP)
+👉 Phone connects automatically—no typing 😄
+
+💬 4. Text / Message
+
+Plain text
+Instructions
+Coupon codes
+Serial numbers
+
+Data: Welcome to our store! Offer valid till today.
+Client behavior
+	Shows plain text
+
+✔ No special prefix → treated as text
+
+📩 5. SMS or Email trigger
+
+Phone number
+Message body
+Email address
+
+Data: SMSTO:+919999999999:Hello, I want details
+
+Client behavior
+	Opens SMS app with message prefilled
+✔ Identified by SMSTO: / sms:
+
+
+Subject & content
+👉 Opens SMS or email app with fields pre-filled
+
+💳 6. Payment information (very common in India 🇮🇳)
+
+UPI ID
+
+Data: mailto:support@company.com?subject=Help&body=Need%20support
+
+Merchant name
+
+Amount (optional)
+
+Transaction note
+👉 Used by Google Pay, PhonePe, Paytm, etc.
+
+📍 7. Location (Geo coordinates)
+
+Data: geo:19.0760,72.8777
+Latitude & longitude
+
+Opens directly in Google Maps
+
+📅 8. Calendar event
+
+Event name
+
+Date & time
+
+Location
+
+Reminder
+
+🔐 9. Authentication / Login data
+
+Session token
+
+One-time login URL
+
+Used for web login, MFA, device pairing
+
+
+
+<dependency>
+    <groupId>com.google.zxing</groupId>
+    <artifactId>core</artifactId>
+    <version>3.5.3</version>
+</dependency>
+<dependency>
+    <groupId>com.google.zxing</groupId>
+    <artifactId>javase</artifactId>
+    <version>3.5.3</version>
+</dependency>
+
+
+@Service
+public class QrCodeService {
+
+    public byte[] generateQrCode(String data, int width, int height) throws Exception {
+
+        QRCodeWriter writer = new QRCodeWriter();
+        BitMatrix bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, width, height);
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        MatrixToImageWriter.writeToStream(bitMatrix, "PNG", outputStream);
+
+        return outputStream.toByteArray();
+    }
+}
+
+@RestController
+@RequestMapping("/api/qr")
+public class QrController {
+
+    @Autowired
+    private QrCodeService qrCodeService;
+
+    @GetMapping(value = "/generate", produces = MediaType.IMAGE_PNG_VALUE)
+    public byte[] generateQr() throws Exception {
+
+        String token = UUID.randomUUID().toString(); // or JWT / encrypted value
+        String qrData = "https://api.mycompany.com/api/qr/scan?token=" + token;
+
+        // Store token in DB / Redis with expiry
+        return qrCodeService.generateQrCode(qrData, 300, 300);
+    }
+}
+
+
+@GetMapping("/scan")
+public ResponseEntity<?> scanQr(@RequestParam String token) {
+
+    String data = redisTemplate.opsForValue().get(token);
+    if (data == null) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body("Invalid or expired QR");
+    }
+
+    // Mark as used
+    redisTemplate.delete(token);
+
+    return ResponseEntity.ok("QR validated successfully");
+}
+
+Backend validates:
+
+token exists
+
+token not expired
+
+token not used already
+
+token belongs to correct user/session
+
+
+
+
+
+
+
+🏗️ Japan KYC QR – Production Architecture
+Core principles (Japan-safe)
+
+❌ No PII in QR
+
+✅ Short-lived session
+
+✅ One-time usage
+
+✅ Backend validation only
+
+✅ Full audit trail
+
+✅ HTTPS enforced
+
+
+
+
+<dependencies>
+
+    <!-- Web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Redis (session + TTL) -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-redis</artifactId>
+    </dependency>
+
+    <!-- QR -->
+    <dependency>
+        <groupId>com.google.zxing</groupId>
+        <artifactId>core</artifactId>
+        <version>3.5.3</version>
+    </dependency>
+    <dependency>
+        <groupId>com.google.zxing</groupId>
+        <artifactId>javase</artifactId>
+        <version>3.5.3</version>
+    </dependency>
+
+    <!-- Security -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+
+    <!-- JSON -->
+    <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+</dependencies>
+
+
+Loves@23
+Loves#23i provide the below solution for JPY KYC
+
+
+1) User will Login to http://CITI.corporate.com/
+2) Go to Card Application Page
+3) Generate the QR Code by CITI API
+4) QR Code is Displayed in Card Application Page 
+5) User is picking mobile and scan the QR
+6) Expecting to receive the call on API to validate the QR
+7) Open e-NINSHO mobile app if step 6 is success
+
+
+is it correct design or not
+
+1) User logs into CITI portal (desktop)
+2) User navigates to Card Application
+3) CITI backend creates SID + QR
+4) QR displayed in browser
+5) User scans QR with mobile camera
+6) Mobile browser opens HTTPS URL
+7) CITI backend validates SID
+8) If valid → redirect to e-NINSHO deep link
+9) e-NINSHO app opens
+
+
+
+https://kyc.citibank.com/jp/start?sid=9f3a2c82-fa4d-4d3a
+
+Scan QR
+  ↓
+Mobile browser opens CITI URL
+  ↓
+Backend validates SID
+  ↓
+HTTP 302 redirect
+  ↓
+e-NINSHO app opens
+
+
+
+1️) QR screenshot / photo reuse (MOST COMMON)
+
+Attack
+	Someone takes a photo of the QR
+	Tries to scan it later or on another device
+
+Mitigation (mandatory)
+	Short TTL (≤ 5 min)
+	One-time SID
+
+Status transition (ACTIVE → USED)
+
+2) Man-in-the-middle (MITM)
+
+Attack
+	Attacker intercepts traffic
+	Modifies redirect
+
+Reality
+	HTTPS + TLS 1.2+ prevents this
+	HSTS blocks downgrade
+
+Mitigation
+	Strict-Transport-Security: max-age=31536000
+	
+3) Replay from another device
+
+Attack
+	Attacker scans QR
+	Victim scans same QR later
+
+Mitigation
+	Mark SID as USED on first success
+	Bind SID to device (soft → hard)	
+
+Reject The Request from API
+
+4) Fake browser / script call
+
+Attack
+	Curl / Postman calls /start?sid=...
+Mitigation
+	User-Agent validation
+	TLS fingerprint
+	Rate limiting
+
+Challenge escalation if suspicious
+
+📌 Even if this succeeds: They still cannot complete KYC.  e-NINSHO app won’t authenticate them
+
+5) Redirect manipulation
+
+Attack
+	Open valid SID but redirect to attacker app
+
+Mitigation
+	Redirect URL is hardcoded server-side
+	Never derived from request
+
+=============================================================
+
+
+
+QR is NOT security
+QR is just a transport mechanism
+
+All real security is enforced server-side:
+	Validation
+	Expiry
+	Rate limiting
+	One-time usage
+	Binding
+
+
+=====================
+What actually happens during HTTPS (one-way TLS)
+Step-by-step (real world)
+	Mobile Browser → https://kyc.citibank.com
+			↓
+	Server sends SSL certificate
+			↓
+	Browser verifies certificate chain
+			↓
+	Secure encrypted channel established
+	
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+	
