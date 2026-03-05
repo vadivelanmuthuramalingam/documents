@@ -1,0 +1,171 @@
+Generate Jappan Local Time + 3 minutes
+=======================================================
+
+Instant.now()
+    .atZone(ZoneId.of("Asia/Tokyo"))
+    .plusMinutes(3);
+
+
+====================AES ENC & DEC=========================================================
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.util.Base64;
+
+public class AESUtil {
+
+    private static final String ALGORITHM = "AES/CBC/PKCS5Padding";
+
+    // 🔐 Encrypt
+    public static String encrypt(String plainText, String key) throws Exception {
+
+        byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+
+        if (keyBytes.length != 16 && keyBytes.length != 24 && keyBytes.length != 32) {
+            throw new IllegalArgumentException("Key must be 16, 24, or 32 bytes");
+        }
+
+        // Generate Random IV
+        byte[] iv = new byte[16];
+        SecureRandom secureRandom = new SecureRandom();
+        secureRandom.nextBytes(iv);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        SecretKeySpec keySpec = new SecretKeySpec(keyBytes, "AES");
+        IvParameterSpec ivSpec = new IvParameterSpec(iv);
+
+        cipher.init(Cipher.ENCRYPT_MODE, keySpec, ivSpec);
+
+        byte[] encrypted = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
+
+        // Combine IV + CipherText
+        byte[] combined = new byte[iv.length + encrypted.length];
+        System.arraycopy(iv, 0, combined, 0, iv.length);
+        System.arraycopy(encrypted, 0, combined, iv.length, encrypted.length);
+
+        return Base64.getEncoder().encodeToString(combined);
+    }
+
+    // 🔓 Decrypt
+    public static String decrypt(String encryptedBase64, String key) throws Exception {
+
+        byte[] combined = Base64.getDecoder().decode(encryptedBase64);
+
+        byte[] iv = new byte[16];
+        byte[] encrypted = new byte[combined.length - 16];
+
+        System.arraycopy(combined, 0, iv, 0, 16);
+        System.arraycopy(combined, 16, encrypted, 0, encrypted.length);
+
+        Cipher cipher = Cipher.getInstance(ALGORITHM);
+        SecretKeySpec keySpec = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "AES");
+        IvParameterSpec ivSpec = new IvParameterSpec(iv);
+
+        cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec);
+
+        byte[] decrypted = cipher.doFinal(encrypted);
+
+        return new String(decrypted, StandardCharsets.UTF_8);
+    }
+
+    // 🧪 Test
+    public static void main(String[] args) throws Exception {
+
+        String key = "1234567890123456"; // 16 bytes
+        String payload = "amount=1000&txnId=ABC123";
+
+        String encrypted = encrypt(payload, key);
+        System.out.println("Encrypted: " + encrypted);
+
+        String decrypted = decrypt(encrypted, key);
+        System.out.println("Decrypted: " + decrypted);
+    }
+}
+
+
+====================================================================================
+import java.io.FileInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.*;
+import java.util.Base64;
+
+public class DigitalSigner {
+
+    public static String sign(String data) throws Exception {
+
+        // Load Keystore
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(new FileInputStream("keystore.p12"), "changeit".toCharArray());
+
+        // Get Private Key
+        PrivateKey privateKey = (PrivateKey)
+                keyStore.getKey("mykey", "changeit".toCharArray());
+
+        // Create Signature object
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initSign(privateKey);
+
+        // Add data
+        signature.update(data.getBytes(StandardCharsets.UTF_8));
+
+        // Generate signature
+        byte[] signedBytes = signature.sign();
+
+        return Base64.getEncoder().encodeToString(signedBytes);
+    }
+
+    public static void main(String[] args) throws Exception {
+        String payload = "amount=1000&txnId=ABC123";
+        String signature = sign(payload);
+        System.out.println("Signature: " + signature);
+    }
+}
+
+
+1️⃣ SHA-256 hash of:
+   "amount=1000&txnId=ABC123"
+
+2️⃣ Encrypt that hash using RSA private key
+
+3️⃣ Produce binary signature
+
+4️⃣ Encode to Base64
+
+
+
+Verify Signature
+=============================================================================================
+
+import java.io.FileInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.*;
+import java.security.cert.Certificate;
+import java.util.Base64;
+
+public class SignatureVerifier {
+
+    public static boolean verify(String data, String signatureBase64) throws Exception {
+
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        keyStore.load(new FileInputStream("keystore.p12"), "changeit".toCharArray());
+
+        Certificate certificate = keyStore.getCertificate("mykey");
+        PublicKey publicKey = certificate.getPublicKey();
+
+        Signature signature = Signature.getInstance("SHA256withRSA");
+        signature.initVerify(publicKey);
+
+        signature.update(data.getBytes(StandardCharsets.UTF_8));
+
+        byte[] signatureBytes = Base64.getDecoder().decode(signatureBase64);
+
+        return signature.verify(signatureBytes);
+    }
+}
+
+
+
+
