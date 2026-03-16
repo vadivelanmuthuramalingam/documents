@@ -1,91 +1,147 @@
-import java.sql.*;
-import java.util.*;
+ReactiveHttpClientConfig.java
 
-public class DynamicInsertUtil {
+@Bean
+public HttpClient httpClient(ConnectionProvider provider,
+                             SslContext sslContext) {
 
-    public static int insert(Connection conn, String tableName, Map<String, Object> data) throws Exception {
+    return HttpClient.create(provider)
 
-        StringBuilder columns = new StringBuilder();
-        StringBuilder placeholders = new StringBuilder();
+            .secure(ssl -> ssl.sslContext(sslContext))
 
-        for (String col : data.keySet()) {
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 20000)
 
-            if (columns.length() > 0) {
-                columns.append(",");
-                placeholders.append(",");
-            }
+            .responseTimeout(Duration.ofSeconds(5))
 
-            columns.append(col);
-            placeholders.append("?");
-        }
+            .doOnConnected(conn ->
+                    conn.addHandlerLast(
+                            new ReadTimeoutHandler(5))
+                        .addHandlerLast(
+                            new WriteTimeoutHandler(5)))
 
-        String sql = "INSERT INTO " + tableName +
-                " (" + columns + ") VALUES (" + placeholders + ")";
+            .compress(true)
 
-        System.out.println("SQL = " + sql);
+            .keepAlive(true);
+}
 
-        PreparedStatement ps = conn.prepareStatement(sql);
 
-        int index = 1;
 
-        for (Object value : data.values()) {
 
-            setPreparedStatementValue(ps, index++, value);
 
-        }
 
-        return ps.executeUpdate();
+
+
+
+
+
+
+
+
+
+.retrieve()
+
+.onStatus(
+    status -> status.is4xxClientError(),
+    response -> response.bodyToMono(String.class)
+        .map(body -> new GatewayException(
+            "CLIENT_ERROR",
+            body))
+)
+
+.onStatus(
+    status -> status.is5xxServerError(),
+    response -> response.bodyToMono(String.class)
+        .map(body -> new GatewayException(
+            "SERVER_ERROR",
+            body))
+)
+
+
+
+
+
+
+
+package com.gateway.service;
+
+import java.net.ConnectException;
+import java.net.UnknownHostException;
+import java.util.concurrent.TimeoutException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import com.gateway.exception.GatewayException;
+
+import reactor.core.publisher.Mono;
+
+@Service
+public class GatewayService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(GatewayService.class);
+
+    private final WebClientFactory factory;
+
+    public GatewayService(WebClientFactory factory) {
+        this.factory = factory;
     }
 
-    private static void setPreparedStatementValue(PreparedStatement ps, int index, Object value) throws Exception {
+    public Mono<String> callService(String client, String payload) {
 
-        if (value == null) {
+        log.info("Gateway Request Payload: {}", payload);
 
-            ps.setNull(index, Types.NULL);
+        return factory.getClient(client)
 
-        } else if (value instanceof String) {
+                .post()
 
-            ps.setString(index, (String) value);
+                .bodyValue(payload)
 
-        } else if (value instanceof Integer) {
+                .retrieve()
 
-            ps.setInt(index, (Integer) value);
+                .bodyToMono(String.class)
 
-        } else if (value instanceof Long) {
+                .doOnNext(response ->
+                        log.info("Gateway Response Payload: {}", response))
 
-            ps.setLong(index, (Long) value);
+                .timeout(Duration.ofSeconds(6))
 
-        } else if (value instanceof Double) {
+                .onErrorMap(TimeoutException.class, ex -> {
 
-            ps.setDouble(index, (Double) value);
+                    log.error("Socket Timeout", ex);
 
-        } else if (value instanceof Float) {
+                    return new GatewayException(
+                            "SOCKET_TIMEOUT",
+                            "External system timeout");
+                })
 
-            ps.setFloat(index, (Float) value);
+                .onErrorMap(ConnectException.class, ex -> {
 
-        } else if (value instanceof Boolean) {
+                    log.error("Connection Timeout", ex);
 
-            ps.setBoolean(index, (Boolean) value);
+                    return new GatewayException(
+                            "CONNECTION_TIMEOUT",
+                            "Unable to connect to external system");
+                })
 
-        } else if (value instanceof java.sql.Date) {
+                .onErrorMap(UnknownHostException.class, ex -> {
 
-            ps.setDate(index, (java.sql.Date) value);
+                    log.error("DNS Failure", ex);
 
-        } else if (value instanceof java.sql.Timestamp) {
+                    return new GatewayException(
+                            "DNS_ERROR",
+                            "Invalid hostname");
+                })
 
-            ps.setTimestamp(index, (Timestamp) value);
+                .onErrorMap(Exception.class, ex -> {
 
-        } else if (value instanceof java.util.Date) {
+                    log.error("Unexpected Gateway Error", ex);
 
-            ps.setTimestamp(index, new Timestamp(((java.util.Date) value).getTime()));
-
-        } else if (value instanceof byte[]) {
-
-            ps.setBytes(index, (byte[]) value);
-
-        } else {
-
-            ps.setObject(index, value);
-        }
+                    return new GatewayException(
+                            "GATEWAY_ERROR",
+                            ex.getMessage());
+                });
     }
 }
+
+
