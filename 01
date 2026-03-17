@@ -1,147 +1,99 @@
-ReactiveHttpClientConfig.java
+public String callExternal(String url, String payload) {
 
-@Bean
-public HttpClient httpClient(ConnectionProvider provider,
-                             SslContext sslContext) {
+    long startTime = System.currentTimeMillis();
 
-    return HttpClient.create(provider)
+    return webClient.post()
+            .uri(url)
 
-            .secure(ssl -> ssl.sslContext(sslContext))
+            .headers(headers -> {
+                headers.setBasicAuth("username", "password");
+                headers.add("Content-Type", "application/json");
 
-            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 20000)
+                if (log.isDebugEnabled()) {
+                    log.debug("=== REQUEST HEADERS ===");
+                    headers.forEach((k, v) ->
+                        v.forEach(val ->
+                            log.debug("{}={}", k, val)));
+                }
+            })
 
-            .responseTimeout(Duration.ofSeconds(5))
+            .bodyValue(payload)
 
-            .doOnConnected(conn ->
-                    conn.addHandlerLast(
-                            new ReadTimeoutHandler(5))
-                        .addHandlerLast(
-                            new WriteTimeoutHandler(5)))
+            .retrieve()
 
-            .compress(true)
+            .bodyToMono(String.class)
 
-            .keepAlive(true);
+            // 🔥 LIFECYCLE LOGGER
+            .doOnEach(signal -> {
+
+                String thread = Thread.currentThread().getName();
+
+                if (log.isDebugEnabled()) {
+
+                    log.debug("--------------------------------------------------");
+                    log.debug("THREAD: {}", thread);
+                    log.debug("SIGNAL TYPE: {}", signal.getType());
+
+                    if (signal.isOnSubscribe()) {
+                        log.debug("EVENT: SUBSCRIBED (Request Initiated)");
+                    }
+
+                    if (signal.isOnNext()) {
+                        log.debug("EVENT: RESPONSE RECEIVED");
+                        log.debug("RESPONSE BODY: {}", signal.get());
+                    }
+
+                    if (signal.isOnError()) {
+                        log.error("EVENT: ERROR OCCURRED", signal.getThrowable());
+                    }
+
+                    if (signal.isOnComplete()) {
+                        log.debug("EVENT: FLOW COMPLETED");
+                    }
+                }
+            })
+
+            // 🔥 EXTRA DEBUG HOOKS
+            .doOnSubscribe(sub ->
+                    log.debug(">>> SUBSCRIBE STARTED"))
+
+            .doOnRequest(req ->
+                    log.debug(">>> REQUEST DEMAND: {}", req))
+
+            .doOnSuccess(res ->
+                    log.debug(">>> SUCCESS SIGNAL"))
+
+            .doOnTerminate(() ->
+                    log.debug(">>> TERMINATED"))
+
+            .doFinally(signalType -> {
+
+                long timeTaken = System.currentTimeMillis() - startTime;
+
+                log.debug(">>> FINAL SIGNAL: {}", signalType);
+                log.debug(">>> TOTAL TIME (ms): {}", timeTaken);
+            })
+
+            // 🔥 TIMEOUT HANDLING
+            .timeout(Duration.ofSeconds(5))
+
+            // 🔥 ERROR HANDLING
+            .onErrorResume(ex -> {
+
+                if (ex instanceof TimeoutException) {
+                    log.error("TIMEOUT OCCURRED");
+                    return Mono.just("TIMEOUT_RESPONSE");
+                }
+
+                if (ex instanceof ConnectException) {
+                    log.error("CONNECTION FAILED", ex);
+                    return Mono.error(ex);
+                }
+
+                log.error("UNKNOWN ERROR", ex);
+                return Mono.error(ex);
+            })
+
+            // 🔥 BLOCK (Tomcat use-case)
+            .block(Duration.ofSeconds(10));
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-.retrieve()
-
-.onStatus(
-    status -> status.is4xxClientError(),
-    response -> response.bodyToMono(String.class)
-        .map(body -> new GatewayException(
-            "CLIENT_ERROR",
-            body))
-)
-
-.onStatus(
-    status -> status.is5xxServerError(),
-    response -> response.bodyToMono(String.class)
-        .map(body -> new GatewayException(
-            "SERVER_ERROR",
-            body))
-)
-
-
-
-
-
-
-
-package com.gateway.service;
-
-import java.net.ConnectException;
-import java.net.UnknownHostException;
-import java.util.concurrent.TimeoutException;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-
-import com.gateway.exception.GatewayException;
-
-import reactor.core.publisher.Mono;
-
-@Service
-public class GatewayService {
-
-    private static final Logger log =
-            LoggerFactory.getLogger(GatewayService.class);
-
-    private final WebClientFactory factory;
-
-    public GatewayService(WebClientFactory factory) {
-        this.factory = factory;
-    }
-
-    public Mono<String> callService(String client, String payload) {
-
-        log.info("Gateway Request Payload: {}", payload);
-
-        return factory.getClient(client)
-
-                .post()
-
-                .bodyValue(payload)
-
-                .retrieve()
-
-                .bodyToMono(String.class)
-
-                .doOnNext(response ->
-                        log.info("Gateway Response Payload: {}", response))
-
-                .timeout(Duration.ofSeconds(6))
-
-                .onErrorMap(TimeoutException.class, ex -> {
-
-                    log.error("Socket Timeout", ex);
-
-                    return new GatewayException(
-                            "SOCKET_TIMEOUT",
-                            "External system timeout");
-                })
-
-                .onErrorMap(ConnectException.class, ex -> {
-
-                    log.error("Connection Timeout", ex);
-
-                    return new GatewayException(
-                            "CONNECTION_TIMEOUT",
-                            "Unable to connect to external system");
-                })
-
-                .onErrorMap(UnknownHostException.class, ex -> {
-
-                    log.error("DNS Failure", ex);
-
-                    return new GatewayException(
-                            "DNS_ERROR",
-                            "Invalid hostname");
-                })
-
-                .onErrorMap(Exception.class, ex -> {
-
-                    log.error("Unexpected Gateway Error", ex);
-
-                    return new GatewayException(
-                            "GATEWAY_ERROR",
-                            ex.getMessage());
-                });
-    }
-}
-
-
