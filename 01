@@ -1,99 +1,17 @@
-public String callExternal(String url, String payload) {
+Convert JKS to P12
 
-    long startTime = System.currentTimeMillis();
+keytool -importkeystore \
+  -srckeystore your-keystore.jks \
+  -destkeystore your-keystore.p12 \
+  -deststoretype PKCS12 \
+  -srcstorepass <JKS_PASSWORD> \
+  -deststorepass <P12_PASSWORD> \
+  -srcalias <ALIAS>
 
-    return webClient.post()
-            .uri(url)
+Postman → Settings → Certificates → CA Certificates → Add
 
-            .headers(headers -> {
-                headers.setBasicAuth("username", "password");
-                headers.add("Content-Type", "application/json");
-
-                if (log.isDebugEnabled()) {
-                    log.debug("=== REQUEST HEADERS ===");
-                    headers.forEach((k, v) ->
-                        v.forEach(val ->
-                            log.debug("{}={}", k, val)));
-                }
-            })
-
-            .bodyValue(payload)
-
-            .retrieve()
-
-            .bodyToMono(String.class)
-
-            // 🔥 LIFECYCLE LOGGER
-            .doOnEach(signal -> {
-
-                String thread = Thread.currentThread().getName();
-
-                if (log.isDebugEnabled()) {
-
-                    log.debug("--------------------------------------------------");
-                    log.debug("THREAD: {}", thread);
-                    log.debug("SIGNAL TYPE: {}", signal.getType());
-
-                    if (signal.isOnSubscribe()) {
-                        log.debug("EVENT: SUBSCRIBED (Request Initiated)");
-                    }
-
-                    if (signal.isOnNext()) {
-                        log.debug("EVENT: RESPONSE RECEIVED");
-                        log.debug("RESPONSE BODY: {}", signal.get());
-                    }
-
-                    if (signal.isOnError()) {
-                        log.error("EVENT: ERROR OCCURRED", signal.getThrowable());
-                    }
-
-                    if (signal.isOnComplete()) {
-                        log.debug("EVENT: FLOW COMPLETED");
-                    }
-                }
-            })
-
-            // 🔥 EXTRA DEBUG HOOKS
-            .doOnSubscribe(sub ->
-                    log.debug(">>> SUBSCRIBE STARTED"))
-
-            .doOnRequest(req ->
-                    log.debug(">>> REQUEST DEMAND: {}", req))
-
-            .doOnSuccess(res ->
-                    log.debug(">>> SUCCESS SIGNAL"))
-
-            .doOnTerminate(() ->
-                    log.debug(">>> TERMINATED"))
-
-            .doFinally(signalType -> {
-
-                long timeTaken = System.currentTimeMillis() - startTime;
-
-                log.debug(">>> FINAL SIGNAL: {}", signalType);
-                log.debug(">>> TOTAL TIME (ms): {}", timeTaken);
-            })
-
-            // 🔥 TIMEOUT HANDLING
-            .timeout(Duration.ofSeconds(5))
-
-            // 🔥 ERROR HANDLING
-            .onErrorResume(ex -> {
-
-                if (ex instanceof TimeoutException) {
-                    log.error("TIMEOUT OCCURRED");
-                    return Mono.just("TIMEOUT_RESPONSE");
-                }
-
-                if (ex instanceof ConnectException) {
-                    log.error("CONNECTION FAILED", ex);
-                    return Mono.error(ex);
-                }
-
-                log.error("UNKNOWN ERROR", ex);
-                return Mono.error(ex);
-            })
-
-            // 🔥 BLOCK (Tomcat use-case)
-            .block(Duration.ofSeconds(10));
-}
+keytool -exportcert \
+  -alias <ALIAS> \
+  -keystore truststore.jks \
+  -rfc \
+  -file ca-cert.pem
