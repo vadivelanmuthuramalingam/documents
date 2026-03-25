@@ -1,17 +1,23 @@
-Convert JKS to P12
+    .timeout(Duration.ofSeconds(6)) // overall timeout safeguard
 
-keytool -importkeystore \
-  -srckeystore your-keystore.jks \
-  -destkeystore your-keystore.p12 \
-  -deststoretype PKCS12 \
-  -srcstorepass <JKS_PASSWORD> \
-  -deststorepass <P12_PASSWORD> \
-  -srcalias <ALIAS>
-
-Postman → Settings → Certificates → CA Certificates → Add
-
-keytool -exportcert \
-  -alias <ALIAS> \
-  -keystore truststore.jks \
-  -rfc \
-  -file ca-cert.pem
+    .onErrorResume(ex -> {
+        if (ex instanceof java.net.ConnectException) {
+            return Mono.just("Connection Timeout");
+        } 
+        else if (ex instanceof java.util.concurrent.TimeoutException) {
+            return Mono.just("Response Timeout");
+        } 
+        else if (ex instanceof io.netty.handler.timeout.ReadTimeoutException) {
+            return Mono.just("Socket Read Timeout");
+        } 
+        else if (ex instanceof io.netty.handler.timeout.WriteTimeoutException) {
+            return Mono.just("Socket Write Timeout");
+        } 
+        else if (ex instanceof org.springframework.web.reactive.function.client.WebClientRequestException) {
+            return Mono.just("Request Error: " + ex.getMessage());
+        }
+        else {
+            return Mono.just("Unexpected Error: " + ex.getMessage());
+        }
+    })
+    .block();
