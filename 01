@@ -1,23 +1,33 @@
-    .timeout(Duration.ofSeconds(6)) // overall timeout safeguard
+ExchangeFilterFunction logRequest = ExchangeFilterFunction.ofRequestProcessor(request -> {
+    System.out.println("➡️ REQUEST:");
+    System.out.println("URI: " + request.url());
+    System.out.println("Method: " + request.method());
+    request.headers()
+        .forEach((name, values) -> values.forEach(value -> 
+            System.out.println(name + ": " + value)
+        ));
+    return Mono.just(request);
+});
 
-    .onErrorResume(ex -> {
-        if (ex instanceof java.net.ConnectException) {
-            return Mono.just("Connection Timeout");
-        } 
-        else if (ex instanceof java.util.concurrent.TimeoutException) {
-            return Mono.just("Response Timeout");
-        } 
-        else if (ex instanceof io.netty.handler.timeout.ReadTimeoutException) {
-            return Mono.just("Socket Read Timeout");
-        } 
-        else if (ex instanceof io.netty.handler.timeout.WriteTimeoutException) {
-            return Mono.just("Socket Write Timeout");
-        } 
-        else if (ex instanceof org.springframework.web.reactive.function.client.WebClientRequestException) {
-            return Mono.just("Request Error: " + ex.getMessage());
-        }
-        else {
-            return Mono.just("Unexpected Error: " + ex.getMessage());
-        }
-    })
-    .block();
+ExchangeFilterFunction logResponse = ExchangeFilterFunction.ofResponseProcessor(response -> {
+    System.out.println("⬅️ RESPONSE:");
+    System.out.println("Status: " + response.statusCode());
+
+    response.headers().asHttpHeaders()
+        .forEach((name, values) -> values.forEach(value -> 
+            System.out.println(name + ": " + value)
+        ));
+
+    return response.bodyToMono(String.class)
+        .defaultIfEmpty("")
+        .flatMap(body -> {
+            System.out.println("Body: " + body);
+
+            // Rebuild response so downstream can still read body
+            return Mono.just(
+                ClientResponse.from(response)
+                    .body(body)
+                    .build()
+            );
+        });
+});
