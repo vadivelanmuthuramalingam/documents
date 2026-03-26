@@ -1,33 +1,19 @@
-ExchangeFilterFunction logRequest = ExchangeFilterFunction.ofRequestProcessor(request -> {
-    System.out.println("➡️ REQUEST:");
-    System.out.println("URI: " + request.url());
-    System.out.println("Method: " + request.method());
-    request.headers()
-        .forEach((name, values) -> values.forEach(value -> 
-            System.out.println(name + ": " + value)
-        ));
-    return Mono.just(request);
-});
+5x4_GVEK
 
-ExchangeFilterFunction logResponse = ExchangeFilterFunction.ofResponseProcessor(response -> {
-    System.out.println("⬅️ RESPONSE:");
-    System.out.println("Status: " + response.statusCode());
+String memoryLimit = Files.readString(
+    Paths.get("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+);
 
-    response.headers().asHttpHeaders()
-        .forEach((name, values) -> values.forEach(value -> 
-            System.out.println(name + ": " + value)
-        ));
+String cpuQuota = Files.readString(
+    Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
+);
 
-    return response.bodyToMono(String.class)
-        .defaultIfEmpty("")
-        .flatMap(body -> {
-            System.out.println("Body: " + body);
+String cpuPeriod = Files.readString(
+    Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+);
 
-            // Rebuild response so downstream can still read body
-            return Mono.just(
-                ClientResponse.from(response)
-                    .body(body)
-                    .build()
-            );
-        });
-});
+double cpuCores = Double.parseDouble(cpuQuota.trim()) /
+                  Double.parseDouble(cpuPeriod.trim());
+
+sys/fs/cgroup/memory.max
+sys/fs/cgroup/cpu.max
