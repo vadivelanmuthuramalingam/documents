@@ -1,19 +1,23 @@
-5x4_GVEK
+.onStatus(status -> status.is5xxServerError(), clientResponse -> {
 
-String memoryLimit = Files.readString(
-    Paths.get("/sys/fs/cgroup/memory/memory.limit_in_bytes")
-);
+        // Capture headers
+        HttpHeaders headers = clientResponse.headers().asHttpHeaders();
 
-String cpuQuota = Files.readString(
-    Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")
-);
+        return clientResponse.bodyToMono(String.class)
+            .defaultIfEmpty("")
+            .flatMap(body -> {
 
-String cpuPeriod = Files.readString(
-    Paths.get("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
-);
+                // 🔹 Log headers
+                headers.forEach((key, value) ->
+                    value.forEach(v -> System.out.println(key + ": " + v))
+                );
 
-double cpuCores = Double.parseDouble(cpuQuota.trim()) /
-                  Double.parseDouble(cpuPeriod.trim());
+                // 🔹 Log body
+                System.out.println("5XX Response Body: " + body);
 
-sys/fs/cgroup/memory.max
-sys/fs/cgroup/cpu.max
+                // 🔹 Throw custom exception with body
+                return Mono.error(new RuntimeException(
+                    "Server Error: " + body
+                ));
+            });
+    })
