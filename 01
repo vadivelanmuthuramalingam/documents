@@ -1,23 +1,32 @@
-.onStatus(status -> status.is5xxServerError(), clientResponse -> {
+import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
-        // Capture headers
-        HttpHeaders headers = clientResponse.headers().asHttpHeaders();
+@Component
+public class ConnectionMetricsService {
 
-        return clientResponse.bodyToMono(String.class)
-            .defaultIfEmpty("")
-            .flatMap(body -> {
+    @Autowired
+    private MeterRegistry meterRegistry;
 
-                // 🔹 Log headers
-                headers.forEach((key, value) ->
-                    value.forEach(v -> System.out.println(key + ": " + v))
-                );
+    public void printMetrics() {
 
-                // 🔹 Log body
-                System.out.println("5XX Response Body: " + body);
+        double active = meterRegistry
+                .find("reactor.netty.connection.provider.active.connections")
+                .gauge()
+                .value();
 
-                // 🔹 Throw custom exception with body
-                return Mono.error(new RuntimeException(
-                    "Server Error: " + body
-                ));
-            });
-    })
+        double idle = meterRegistry
+                .find("reactor.netty.connection.provider.idle.connections")
+                .gauge()
+                .value();
+
+        double pending = meterRegistry
+                .find("reactor.netty.connection.provider.pending.connections")
+                .gauge()
+                .value();
+
+        System.out.println("Active: " + active);
+        System.out.println("Idle: " + idle);
+        System.out.println("Pending: " + pending);
+    }
+}
