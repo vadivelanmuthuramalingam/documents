@@ -3,20 +3,5 @@ spring:
     stream:
       bindings:
         input:
-          destination: "my/topic/#{T(java.net.InetAddress).getLocalHost().getHostName()}"
-          group: "grp-#{T(java.net.InetAddress).getLocalHost().getHostName()}"
-		  
-		  
-spring:
-  cloud:
-    stream:
-      bindings:
-        input:
-          destination: my/topic/${HOSTNAME}   # ✅ Topic includes hostname
-          group: my-group-${HOSTNAME}         # ✅ Queue includes hostname
-
-      solace:
-        bindings:
-          input:
-            consumer:
-              queueNameExpression: "'queue-' + T(java.net.InetAddress).getLocalHost().getHostName()"		  
+          destination: my/topic/${spring.cloud.client.hostname}
+          group: my-group
