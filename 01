@@ -1,32 +1,22 @@
-import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
+spring:
+  cloud:
+    stream:
+      bindings:
+        input:
+          destination: "my/topic/#{T(java.net.InetAddress).getLocalHost().getHostName()}"
+          group: "grp-#{T(java.net.InetAddress).getLocalHost().getHostName()}"
+		  
+		  
+spring:
+  cloud:
+    stream:
+      bindings:
+        input:
+          destination: my/topic/${HOSTNAME}   # ✅ Topic includes hostname
+          group: my-group-${HOSTNAME}         # ✅ Queue includes hostname
 
-@Component
-public class ConnectionMetricsService {
-
-    @Autowired
-    private MeterRegistry meterRegistry;
-
-    public void printMetrics() {
-
-        double active = meterRegistry
-                .find("reactor.netty.connection.provider.active.connections")
-                .gauge()
-                .value();
-
-        double idle = meterRegistry
-                .find("reactor.netty.connection.provider.idle.connections")
-                .gauge()
-                .value();
-
-        double pending = meterRegistry
-                .find("reactor.netty.connection.provider.pending.connections")
-                .gauge()
-                .value();
-
-        System.out.println("Active: " + active);
-        System.out.println("Idle: " + idle);
-        System.out.println("Pending: " + pending);
-    }
-}
+      solace:
+        bindings:
+          input:
+            consumer:
+              queueNameExpression: "'queue-' + T(java.net.InetAddress).getLocalHost().getHostName()"		  
