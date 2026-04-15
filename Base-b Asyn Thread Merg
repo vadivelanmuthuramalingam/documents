@@ -1,0 +1,145 @@
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+import java.util.concurrent.*;
+
+@RestController
+@RequestMapping("/api")
+public class ServiceAController {
+
+    private final ResponseRegistry registry;
+    private final MicrogatewayClient client;
+
+    @Value("${app.timeout-ms}")
+    private long timeout;
+
+    public ServiceAController(ResponseRegistry registry,
+                              MicrogatewayClient client) {
+        this.registry = registry;
+        this.client = client;
+    }
+
+    @PostMapping("/process")
+    public String process(@RequestBody String request) throws Exception {
+
+        String correlationId = UUID.randomUUID().toString();
+
+        // register future
+        CompletableFuture<String> future = registry.register(correlationId);
+
+        // send request
+        client.sendRequest(request, correlationId);
+
+        try {
+            // wait for response
+            return future.get(timeout, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            registry.timeout(correlationId);
+            throw new RuntimeException("Request Timeout");
+        }
+    }
+}
+
+
+
+import java.util.concurrent.*;
+
+import org.springframework.stereotype.Component;
+
+@Component
+public class ResponseRegistry {
+
+    private final ConcurrentHashMap<String, CompletableFuture<String>> registry = new ConcurrentHashMap<>();
+
+    public CompletableFuture<String> register(String correlationId) {
+        CompletableFuture<String> future = new CompletableFuture<>();
+        registry.put(correlationId, future);
+        return future;
+    }
+
+    public void complete(String correlationId, String response) {
+        CompletableFuture<String> future = registry.remove(correlationId);
+        if (future != null) {
+            future.complete(response);
+        }
+    }
+
+    public void timeout(String correlationId) {
+        CompletableFuture<String> future = registry.remove(correlationId);
+        if (future != null) {
+            future.completeExceptionally(new TimeoutException("Timeout"));
+        }
+    }
+}
+
+
+
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+@Service
+public class MicrogatewayClient {
+
+    private final WebClient webClient = WebClient.builder()
+            .baseUrl("http://microgateway-url")
+            .build();
+
+    public void sendRequest(String payload, String correlationId) {
+
+        webClient.post()
+                .uri("/publish")
+                .header("X-Correlation-Id", correlationId)
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(String.class)
+                .subscribe(); // fire and forget
+    }
+}
+
+
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.UUID;
+import java.util.concurrent.*;
+
+@RestController
+@RequestMapping("/api")
+public class ServiceAController {
+
+    private final ResponseRegistry registry;
+    private final MicrogatewayClient client;
+
+    @Value("${app.timeout-ms}")
+    private long timeout;
+
+    public ServiceAController(ResponseRegistry registry,
+                              MicrogatewayClient client) {
+        this.registry = registry;
+        this.client = client;
+    }
+
+    @PostMapping("/process")
+    public String process(@RequestBody String request) throws Exception {
+
+        String correlationId = UUID.randomUUID().toString();
+
+        // register future
+        CompletableFuture<String> future = registry.register(correlationId);
+
+        // send request
+        client.sendRequest(request, correlationId);
+
+        try {
+            // wait for response
+            return future.get(timeout, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            registry.timeout(correlationId);
+            throw new RuntimeException("Request Timeout");
+        }
+    }
+}
+
+
