@@ -1,38 +1,9 @@
-solace:
+spring:
+  cloud:
+    stream:
+      solace:
         bindings:
           input:
             consumer:
-              queueNameExpression: myTempQueue
-              autoBindErrorQueue: false
-              provisionDurableQueue: false
-              addDestinationAsSubscriptionToQueue: true
-              queueProperties:
-                durable: false
-                autoDelete: true
-
-
-logging:
-  level:
-    root: INFO
-
-    # Spring Cloud Stream core
-    org.springframework.cloud.stream: DEBUG
-
-    # Binder infrastructure
-    org.springframework.integration: DEBUG
-
-    # Solace binder (very important)
-    com.solace.spring.cloud.stream.binder: DEBUG
-
-    # Solace Java client (JCSMP)
-    com.solacesystems: DEBUG
-
-    # If needed, go deeper
-    com.solacesystems.jcsmp: TRACE
-logging:
-  level:
-    com.solace.spring.cloud.stream.binder: TRACE
-    com.solacesystems: TRACE
-
-
-com.solacesystems.jcsmp.protocol: TRACE
+              flowProperties:
+                maxUnackedMessages: 50
