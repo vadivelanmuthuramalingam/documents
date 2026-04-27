@@ -1,9 +1,13 @@
-spring:
-  cloud:
-    stream:
-      solace:
-        bindings:
-          input:
-            consumer:
-              flowProperties:
-                maxUnackedMessages: 50
+Semaphore semaphore = new Semaphore(10);
+
+@Bean
+public Consumer<MyMessage> input() {
+    return msg -> {
+        try {
+            semaphore.acquire();   // blocks intake
+            process(msg);
+        } finally {
+            semaphore.release();
+        }
+    };
+}
