@@ -11,3 +11,13 @@ public Consumer<MyMessage> input() {
         }
     };
 }
+
+
+spring:
+  cloud:
+    stream:
+      solace:
+        bindings:
+          input:
+            consumer:
+              useQueueNackMode: false
