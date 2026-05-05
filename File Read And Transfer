@@ -1,0 +1,197 @@
+<dependencies>
+
+    <!-- Spring WebFlux -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-webflux</artifactId>
+    </dependency>
+
+    <!-- AWS S3 -->
+    <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>s3</artifactId>
+    </dependency>
+
+    <!-- Reactor Netty -->
+    <dependency>
+        <groupId>io.projectreactor.netty</groupId>
+        <artifactId>reactor-netty-http</artifactId>
+    </dependency>
+
+</dependencies>
+
+
+
+
+app:
+  destination:
+    base-url: https://apigee-endpoint
+    upload-uri: /upload
+
+http:
+  connect-timeout-ms: 30000
+  response-timeout-min: 15
+  max-connections: 200
+  
+  
+  
+package com.bank.config;
+
+import io.netty.channel.ChannelOption;
+import reactor.netty.http.client.HttpClient;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.WebClient;
+
+import java.time.Duration;
+
+@Configuration
+public class WebClientConfig {
+
+    @Bean
+    public WebClient webClient() {
+
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 30000)
+                .responseTimeout(Duration.ofMinutes(15))
+                .compress(true);
+
+        return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .build();
+    }
+}
+
+
+
+
+package com.bank.s3;
+
+import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+
+import java.io.InputStream;
+
+@Service
+public class S3StreamingService {
+
+    private final S3Client s3Client;
+
+    public S3StreamingService(S3Client s3Client) {
+        this.s3Client = s3Client;
+    }
+
+    public InputStream getObjectStream(String bucket, String key) {
+
+        return s3Client.getObject(
+                GetObjectRequest.builder()
+                        .bucket(bucket)
+                        .key(key)
+                        .build()
+        );
+    }
+}
+
+
+
+
+package com.bank.transfer;
+
+import com.bank.s3.S3StreamingService;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
+
+import java.io.InputStream;
+import java.time.Duration;
+
+@Service
+public class FileTransferService {
+
+    private final WebClient webClient;
+    private final S3StreamingService s3Service;
+
+    @Value("${app.destination.base-url}")
+    private String baseUrl;
+
+    @Value("${app.destination.upload-uri}")
+    private String uploadUri;
+
+    public FileTransferService(WebClient webClient,
+                               S3StreamingService s3Service) {
+        this.webClient = webClient;
+        this.s3Service = s3Service;
+    }
+
+    public String transfer(String bucket, String key) {
+
+        long start = System.currentTimeMillis();
+
+        try (InputStream inputStream = s3Service.getObjectStream(bucket, key)) {
+
+            InputStreamResource resource = new InputStreamResource(inputStream) {
+                @Override
+                public long contentLength() {
+                    return -1; // unknown length → chunked transfer
+                }
+            };
+
+            String response = webClient.post()
+                    .uri(baseUrl + uploadUri)
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .bodyValue(resource)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .timeout(Duration.ofMinutes(15))
+                    .retryWhen(
+                        reactor.util.retry.Retry.backoff(3, Duration.ofSeconds(5))
+                            .filter(this::isRetryable)
+                    )
+                    .block();
+
+            long end = System.currentTimeMillis();
+
+            System.out.println("File transfer completed in ms: " + (end - start));
+
+            return response;
+
+        } catch (Exception ex) {
+            throw new RuntimeException("File transfer failed", ex);
+        }
+    }
+
+    private boolean isRetryable(Throwable throwable) {
+        // retry only for connection issues (NOT partial upload failures)
+        return throwable instanceof java.io.IOException;
+    }
+}
+
+
+
+package com.bank.controller;
+
+import com.bank.transfer.FileTransferService;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/file")
+public class FileTransferController {
+
+    private final FileTransferService service;
+
+    public FileTransferController(FileTransferService service) {
+        this.service = service;
+    }
+
+    @PostMapping("/transfer")
+    public String transfer(@RequestParam String bucket,
+                           @RequestParam String key) {
+
+        return service.transfer(bucket, key);
+    }
+}  
