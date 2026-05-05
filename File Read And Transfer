@@ -195,3 +195,83 @@ public class FileTransferController {
         return service.transfer(bucket, key);
     }
 }  
+====================================================================================================================
+
+First: Apigee Constraints (VERY IMPORTANT)
+
+Apigee
+
+Default payload limit (often 10–15 MB unless configured)
+Long request timeout risk
+Not ideal for 1 GB pass-through unless:
+streaming enabled
+chunked transfer allowed
+timeout increased
+
+👉 Best practice:
+
+Use Apigee only as pass-through streaming proxy, not buffering
+
+
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import java.io.InputStream;
+
+public InputStream getS3Stream(String bucket, String key) {
+    return s3Client.getObject(
+        GetObjectRequest.builder()
+            .bucket(bucket)
+            .key(key)
+            .build()
+    );
+}
+
+
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.MediaType;
+import org.springframework.web.reactive.function.client.WebClient;
+
+public void streamToDestination(InputStream inputStream) {
+
+    WebClient webClient = WebClient.builder()
+            .baseUrl("https://apigee-endpoint")
+            .build();
+
+    webClient.post()
+            .uri("/upload")
+            .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .bodyValue(new InputStreamResource(inputStream))
+            .retrieve()
+            .bodyToMono(String.class)
+            .block();
+}
+
+
+
+
+
+import java.io.*;
+
+public void parallelStream() throws Exception {
+
+    PipedOutputStream pos = new PipedOutputStream();
+    PipedInputStream pis = new PipedInputStream(pos);
+
+    // Thread 1 → Read from S3
+    new Thread(() -> {
+        try (InputStream s3Stream = getS3Stream("bucket", "file")) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = s3Stream.read(buffer)) != -1) {
+                pos.write(buffer, 0, len);
+            }
+            pos.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }).start();
+
+    // Thread 2 → Send to destination
+    streamToDestination(pis);
+}
+
