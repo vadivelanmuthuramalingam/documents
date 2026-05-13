@@ -1,1 +1,3 @@
-oc get deployments --sort-by=.metadata.creationTimestamp -o custom-columns=NAME:.metadata.name | tail -1
+oc get deployments \
+  --sort-by=.metadata.creationTimestamp \
+  -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,CREATED:.metadata.creationTimestamp
