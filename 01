@@ -3,3 +3,10 @@ oc get deployments \
   -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,CREATED:.metadata.creationTimestamp
 
 https://citi.zoom.us/j/9551967232?pwd=DLB0oUj2Ph0mw229XeBfe6k2ZbPst8.1
+
+
+oc get deploy \
+  -o custom-columns=\
+NAME:.metadata.name,\
+FIRST_DEPLOYED:.metadata.creationTimestamp,\
+LAST_UPDATE:.status.conditions[?(@.type==\"Progressing\")].lastUpdateTime
