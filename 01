@@ -1,3 +1,5 @@
 oc get deployments \
   --sort-by=.metadata.creationTimestamp \
   -o custom-columns=NAME:.metadata.name,REPLICAS:.spec.replicas,CREATED:.metadata.creationTimestamp
+
+https://citi.zoom.us/j/9551967232?pwd=DLB0oUj2Ph0mw229XeBfe6k2ZbPst8.1
