@@ -1,0 +1,32 @@
+Input
+  ↓
+Normalize
+  ↓
+Transform
+  ↓
+Split
+  ↓
+Enrich
+  ↓
+Validate
+  ↓
+Route
+  ↓
+Audit
+
+
+
+Transformation Engine: Build generic transformation engine to convert the message and support all datatype
+	Use JSONPath + expression engine
+	Use streaming parser
+	Support nested array builders
+	One to One
+	One to Many
+	Many to Many
+
+Dynamic Rule Configuration: Keep all rules in DB
+Use async split processing
+Add routing engine
+Add schema registry
+retry/reprocessing
+observability
