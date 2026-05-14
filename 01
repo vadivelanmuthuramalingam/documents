@@ -1,15 +1,2 @@
-TODAY=$(date +%Y-%m-%d)
-
-oc get pods -n <namespace> \
--o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp \
-| grep $TODAY
-
-
-
-oc get pods -n <namespace> --sort-by=.status.startTime
-
-
-oc get pods -n <namespace> \
---sort-by=.metadata.creationTimestamp \
--o wide
-
+oc get rs -n <namespace> \
+-o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas,CREATED:.metadata.creationTimestamp
