@@ -1,11 +1,15 @@
-| Criteria             | Approach 1 | Approach 2 |
-| -------------------- | ---------: | ---------: |
-| Reuse business logic |          ✅ |          ❌ |
-| Scalability          |          ✅ |         ⚠️ |
-| Failure handling     |          ✅ |          ❌ |
-| Retry capability     |          ✅ |         ⚠️ |
-| Parallel execution   |          ✅ |         ⚠️ |
-| Memory usage         |          ✅ |          ❌ |
-| Observability        |          ✅ |         ⚠️ |
-| OpenShift friendly   |          ✅ |         ⚠️ |
-| High TPS systems     |          ✅ |          ❌ |
+TODAY=$(date +%Y-%m-%d)
+
+oc get pods -n <namespace> \
+-o custom-columns=NAME:.metadata.name,CREATED:.metadata.creationTimestamp \
+| grep $TODAY
+
+
+
+oc get pods -n <namespace> --sort-by=.status.startTime
+
+
+oc get pods -n <namespace> \
+--sort-by=.metadata.creationTimestamp \
+-o wide
+
