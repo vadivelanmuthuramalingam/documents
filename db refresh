@@ -1,0 +1,90 @@
+spring:
+  datasource:
+    url: jdbc:oracle:thin:@host:1521/service
+    username: appuser
+    password: password
+
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+
+      validation-timeout: 5000
+      connection-timeout: 10000
+
+      max-lifetime: 1800000
+      idle-timeout: 600000
+
+      keepalive-time: 30000
+
+      connection-test-query: SELECT 1 FROM DUAL
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+  health:
+    db:
+      enabled: true
+
+
+
+/actuator/health
+
+{
+  "status":"DOWN",
+  "components":{
+    "db":{
+      "status":"DOWN",
+      "details":{
+        "error":"ORA-01017 invalid username/password"
+      }
+    }
+  }
+}
+
+@Component
+@RequiredArgsConstructor
+public class DatabaseRefreshService {
+
+    private final HikariDataSource datasource;
+
+    public void refresh(String newPassword) {
+
+        datasource.getHikariConfigMXBean()
+                  .setPassword(newPassword);
+
+        datasource.getHikariPoolMXBean()
+                  .softEvictConnections();
+    }
+}
+
+@Configuration
+public class DataSourceConfig {
+
+    @Bean
+    @RefreshScope
+    public DataSource dataSource(
+            @Value("${spring.datasource.url}") String url,
+            @Value("${spring.datasource.username}") String user,
+            @Value("${spring.datasource.password}") String password) {
+
+        HikariConfig config = new HikariConfig();
+
+        config.setJdbcUrl(url);
+        config.setUsername(user);
+        config.setPassword(password);
+
+        config.setMaximumPoolSize(20);
+
+        config.setConnectionTestQuery(
+                "SELECT 1 FROM DUAL");
+
+        config.setKeepaliveTime(30000);
+
+        return new HikariDataSource(config);
+    }
+}
+
+
+	  
