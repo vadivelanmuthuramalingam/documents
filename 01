@@ -1,2 +1,1 @@
-oc get rs -n <namespace> \
--o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas,CREATED:.metadata.creationTimestamp
+https://citi.zoom.us/j/7805260002?pwd=aGdTQlRQSXM5TnByNXBFc0pHS2lzQT09
