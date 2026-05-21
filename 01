@@ -8,3 +8,16 @@
 | POST                  | [http://dns1.com/api/v1](http://dns1.com/api/v1) | `{amount=2000}` | 306                | Unused                    | N/A                          | N/A                                              | N/A                           | Reserved/unused                 |
 | POST                  | [http://dns1.com/api/v1](http://dns1.com/api/v1) | `{amount=2000}` | 307                | Ignored by browser/client | POST                         | [http://dns2.com/api/v2](http://dns2.com/api/v2) | `{amount=2000}`               | Same request resent             |
 | POST                  | [http://dns1.com/api/v1](http://dns1.com/api/v1) | `{amount=2000}` | 308                | Ignored by browser/client | POST                         | [http://dns2.com/api/v2](http://dns2.com/api/v2) | `{amount=2000}`               | Same request resent permanently |
+
+
+| HTTP Code              | Important Rule                                                  |
+| ---------------------- | --------------------------------------------------------------- |
+| 300 Multiple Choices   | Client/user chooses one of multiple available resources         |
+| 301 Moved Permanently  | Resource permanently moved; old clients may change POST → GET   |
+| 302 Found              | Temporary redirect; many clients historically change POST → GET |
+| 303 See Other          | Always redirect using GET; original payload is discarded        |
+| 304 Not Modified       | Use cached response; no redirect to another URL                 |
+| 305 Use Proxy          | Client must access resource through proxy server (deprecated)   |
+| 306 Unused             | Reserved status code; not used in practice                      |
+| 307 Temporary Redirect | Resend SAME request temporarily (same method + same payload)    |
+| 308 Permanent Redirect | Resend SAME request permanently (same method + same payload)    |
