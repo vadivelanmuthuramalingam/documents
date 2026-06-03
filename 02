@@ -1,259 +1,158 @@
-<project xmlns="http://maven.apache.org/POM/4.0.0">
-    <modelVersion>4.0.0</modelVersion>
+@Component
+public class RedisCommandParser {
 
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.0</version>
-    </parent>
-
-    <groupId>com.company</groupId>
-    <artifactId>redis-admin</artifactId>
-    <version>1.0.0</version>
-
-    <properties>
-        <java.version>21</java.version>
-    </properties>
-
-    <dependencies>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-
-            <exclusions>
-                <exclusion>
-                    <groupId>io.lettuce</groupId>
-                    <artifactId>lettuce-core</artifactId>
-                </exclusion>
-            </exclusions>
-
-        </dependency>
-
-        <dependency>
-            <groupId>redis.clients</groupId>
-            <artifactId>jedis</artifactId>
-            <version>5.2.0</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
-        </dependency>
-
-    </dependencies>
-
-</project>
-
-
-
-
-
-package com.company.redis.config;
-
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.data.redis.connection.RedisPassword;
-import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
-import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
-import org.springframework.data.redis.connection.jedis.JedisClientConfiguration;
-
-import java.time.Duration;
-
-@Configuration
-@RequiredArgsConstructor
-public class RedisConfig {
-
-    private final RedisProperties properties;
-
-    @Bean
-    public JedisConnectionFactory redisConnectionFactory() {
-
-        RedisStandaloneConfiguration config =
-                new RedisStandaloneConfiguration();
-
-        config.setHostName(
-                properties.getHost());
-
-        config.setPort(
-                properties.getPort());
-
-        config.setUsername(
-                properties.getUsername());
-
-        config.setPassword(
-                RedisPassword.of(
-                        properties.getPassword()));
-
-        JedisClientConfiguration clientConfig =
-                JedisClientConfiguration.builder()
-                        .useSsl()
-                        .connectTimeout(
-                                Duration.ofMillis(
-                                        properties.getTimeout()))
-                        .readTimeout(
-                                Duration.ofMillis(
-                                        properties.getTimeout()))
-                        .build();
-
-        return new JedisConnectionFactory(
-                config,
-                clientConfig);
-    }
-}
-
-
-
-
-
-package com.company.redis.service;
-
-import lombok.RequiredArgsConstructor;
-import org.springframework.data.redis.connection.RedisConnection;
-import org.springframework.data.redis.connection.RedisConnectionFactory;
-import org.springframework.stereotype.Service;
-
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-
-@Service
-@RequiredArgsConstructor
-public class RedisCommandService {
-
-    private final RedisConnectionFactory factory;
-
-    private static final Set<String> ALLOWED =
-            Set.of(
-                    "GET",
-                    "SET",
-                    "DEL",
-                    "TTL",
-                    "EXISTS",
-                    "PING",
-                    "HGET",
-                    "HGETALL"
-            );
-
-    public Object execute(String commandText) {
+    public ParsedCommand parse(
+            String commandText) {
 
         String[] tokens =
                 commandText.trim()
                         .split("\\s+");
 
         String command =
-                tokens[0].toUpperCase();
-
-        if (!ALLOWED.contains(command)) {
-
-            throw new RuntimeException(
-                    "Command not allowed");
-        }
+                tokens[0]
+                        .toUpperCase();
 
         byte[][] args =
                 Arrays.stream(tokens)
                         .skip(1)
-                        .map(v ->
-                                v.getBytes(
-                                        StandardCharsets.UTF_8))
+                        .map(String::getBytes)
                         .toArray(byte[][]::new);
 
-        RedisConnection connection =
-                factory.getConnection();
-
-        Object result =
-                connection.execute(
-                        command,
-                        args);
-
-        return convert(result);
-    }
-
-    private Object convert(Object result) {
-
-        if (result == null) {
-            return null;
-        }
-
-        if (result instanceof byte[] bytes) {
-
-            return new String(
-                    bytes,
-                    StandardCharsets.UTF_8);
-        }
-
-        if (result instanceof List<?> list) {
-
-            return list.stream()
-                    .map(v -> {
-
-                        if (v instanceof byte[] bytes) {
-
-                            return new String(
-                                    bytes,
-                                    StandardCharsets.UTF_8);
-                        }
-
-                        return v;
-                    })
-                    .toList();
-        }
-
-        return result;
+        return ParsedCommand.builder()
+                .command(command)
+                .args(args)
+                .build();
     }
 }
 
 
 
-@Bean
-public JedisConnectionFactory redisConnectionFactory()
-        throws Exception {
+@Data
+@Builder
+public class ParsedCommand {
 
-    KeyStore trustStore =
-            KeyStore.getInstance("JKS");
+    private String command;
 
-    try (InputStream is =
-                 new FileInputStream(
-                         "/app/certs/truststore.jks")) {
+    private byte[][] args;
+}
 
-        trustStore.load(
-                is,
-                "changeit".toCharArray());
+
+
+@Component
+public class RedisCommandValidator {
+
+    private static final Set<String> BLOCKED =
+            Set.of(
+                    "FLUSHALL",
+                    "FLUSHDB",
+                    "CONFIG",
+                    "SCRIPT",
+                    "DEBUG",
+                    "MONITOR",
+                    "SHUTDOWN",
+                    "CLUSTER"
+            );
+
+    public void validate(
+            String command) {
+
+        if (BLOCKED.contains(
+                command.toUpperCase())) {
+
+            throw new RuntimeException(
+                    "Blocked Command");
+        }
     }
+}
 
-    TrustManagerFactory tmf =
-            TrustManagerFactory.getInstance(
-                    TrustManagerFactory
-                            .getDefaultAlgorithm());
 
-    tmf.init(trustStore);
 
-    SSLContext sslContext =
-            SSLContext.getInstance("TLS");
 
-    sslContext.init(
-            null,
-            tmf.getTrustManagers(),
-            null);
+@Component
+@RequiredArgsConstructor
+public class JedisNativeExecutor {
 
-    SSLSocketFactory socketFactory =
-            sslContext.getSocketFactory();
+    private final JedisPool jedisPool;
 
-    JedisClientConfiguration clientConfig =
-            JedisClientConfiguration.builder()
-                    .useSsl()
-                    .sslSocketFactory(socketFactory)
-                    .build();
+    public Object execute(
+            ParsedCommand parsed) {
 
-    return new JedisConnectionFactory(
-            redisConfig(),
-            clientConfig);
+        try (Jedis jedis =
+                     jedisPool.getResource()) {
+
+            Connection connection =
+                    jedis.getConnection();
+
+            ProtocolCommand command =
+                    () -> parsed.getCommand()
+                            .getBytes();
+
+            connection.sendCommand(
+                    command,
+                    parsed.getArgs());
+
+            return connection.getOne();
+        }
+    }
+}
+
+
+
+
+
+@Component
+public class RedisResponseFormatter {
+
+    public Object format(
+            Object response) {
+
+        if (response == null) {
+            return null;
+        }
+
+        if (response instanceof byte[] bytes) {
+
+            return new String(bytes);
+        }
+
+        if (response instanceof List<?> list) {
+
+            return list.stream()
+                    .map(this::format)
+                    .toList();
+        }
+
+        return response;
+    }
+}
+
+
+
+
+@Service
+@RequiredArgsConstructor
+public class RedisCommandService {
+
+    private final RedisCommandParser parser;
+
+    private final RedisCommandValidator validator;
+
+    private final JedisNativeExecutor executor;
+
+    private final RedisResponseFormatter formatter;
+
+    public Object execute(
+            String commandText) {
+
+        ParsedCommand parsed =
+                parser.parse(commandText);
+
+        validator.validate(
+                parsed.getCommand());
+
+        Object result =
+                executor.execute(parsed);
+
+        return formatter.format(result);
+    }
 }
