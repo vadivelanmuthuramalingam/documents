@@ -1,158 +1,89 @@
-@Component
-public class RedisCommandParser {
+package com.company.redis.formatter;
 
-    public ParsedCommand parse(
-            String commandText) {
+import org.springframework.stereotype.Component;
 
-        String[] tokens =
-                commandText.trim()
-                        .split("\\s+");
-
-        String command =
-                tokens[0]
-                        .toUpperCase();
-
-        byte[][] args =
-                Arrays.stream(tokens)
-                        .skip(1)
-                        .map(String::getBytes)
-                        .toArray(byte[][]::new);
-
-        return ParsedCommand.builder()
-                .command(command)
-                .args(args)
-                .build();
-    }
-}
-
-
-
-@Data
-@Builder
-public class ParsedCommand {
-
-    private String command;
-
-    private byte[][] args;
-}
-
-
-
-@Component
-public class RedisCommandValidator {
-
-    private static final Set<String> BLOCKED =
-            Set.of(
-                    "FLUSHALL",
-                    "FLUSHDB",
-                    "CONFIG",
-                    "SCRIPT",
-                    "DEBUG",
-                    "MONITOR",
-                    "SHUTDOWN",
-                    "CLUSTER"
-            );
-
-    public void validate(
-            String command) {
-
-        if (BLOCKED.contains(
-                command.toUpperCase())) {
-
-            throw new RuntimeException(
-                    "Blocked Command");
-        }
-    }
-}
-
-
-
-
-@Component
-@RequiredArgsConstructor
-public class JedisNativeExecutor {
-
-    private final JedisPool jedisPool;
-
-    public Object execute(
-            ParsedCommand parsed) {
-
-        try (Jedis jedis =
-                     jedisPool.getResource()) {
-
-            Connection connection =
-                    jedis.getConnection();
-
-            ProtocolCommand command =
-                    () -> parsed.getCommand()
-                            .getBytes();
-
-            connection.sendCommand(
-                    command,
-                    parsed.getArgs());
-
-            return connection.getOne();
-        }
-    }
-}
-
-
-
-
+import java.nio.charset.StandardCharsets;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 public class RedisResponseFormatter {
 
-    public Object format(
-            Object response) {
+    public Object format(Object response) {
 
         if (response == null) {
             return null;
         }
 
+        /*
+         * String Value
+         */
         if (response instanceof byte[] bytes) {
 
-            return new String(bytes);
+            return new String(
+                    bytes,
+                    StandardCharsets.UTF_8);
         }
 
+        /*
+         * List
+         */
         if (response instanceof List<?> list) {
 
             return list.stream()
                     .map(this::format)
+                    .collect(Collectors.toList());
+        }
+
+        /*
+         * Set
+         */
+        if (response instanceof Set<?> set) {
+
+            return set.stream()
+                    .map(this::format)
+                    .collect(Collectors.toSet());
+        }
+
+        /*
+         * Map
+         */
+        if (response instanceof Map<?, ?> map) {
+
+            Map<Object, Object> result =
+                    new LinkedHashMap<>();
+
+            map.forEach((key, value) ->
+
+                    result.put(
+                            format(key),
+                            format(value)));
+
+            return result;
+        }
+
+        /*
+         * Array
+         */
+        if (response instanceof Object[] array) {
+
+            return Arrays.stream(array)
+                    .map(this::format)
                     .toList();
         }
 
-        return response;
-    }
-}
+        /*
+         * Numeric Types
+         */
+        if (response instanceof Integer ||
+                response instanceof Long ||
+                response instanceof Double ||
+                response instanceof Float ||
+                response instanceof Boolean) {
 
+            return response;
+        }
 
-
-
-@Service
-@RequiredArgsConstructor
-public class RedisCommandService {
-
-    private final RedisCommandParser parser;
-
-    private final RedisCommandValidator validator;
-
-    private final JedisNativeExecutor executor;
-
-    private final RedisResponseFormatter formatter;
-
-    public Object execute(
-            String commandText) {
-
-        ParsedCommand parsed =
-                parser.parse(commandText);
-
-        validator.validate(
-                parsed.getCommand());
-
-        Object result =
-                executor.execute(parsed);
-
-        return formatter.format(result);
+        return response.toString();
     }
 }
