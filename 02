@@ -1,89 +1,79 @@
-package com.company.redis.formatter;
+package com.company.redis.parser;
 
-import org.springframework.stereotype.Component;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import java.nio.charset.StandardCharsets;
-import java.util.*;
-import java.util.stream.Collectors;
+public class RedisCommandTokenizer {
 
-@Component
-public class RedisResponseFormatter {
+    private static final Pattern TOKEN_PATTERN =
+            Pattern.compile(
+                    "\"([^\"]*)\"" +      // double quotes
+                    "|'([^']*)'" +        // single quotes
+                    "|(\\S+)"             // normal token
+            );
 
-    public Object format(Object response) {
+    public List<String> tokenize(
+            String command) {
 
-        if (response == null) {
-            return null;
+        List<String> tokens =
+                new ArrayList<>();
+
+        Matcher matcher =
+                TOKEN_PATTERN.matcher(command);
+
+        while (matcher.find()) {
+
+            if (matcher.group(1) != null) {
+
+                tokens.add(matcher.group(1));
+
+            } else if (matcher.group(2) != null) {
+
+                tokens.add(matcher.group(2));
+
+            } else {
+
+                tokens.add(matcher.group(3));
+            }
         }
 
-        /*
-         * String Value
-         */
-        if (response instanceof byte[] bytes) {
+        return tokens;
+    }
+}
 
-            return new String(
-                    bytes,
-                    StandardCharsets.UTF_8);
-        }
 
-        /*
-         * List
-         */
-        if (response instanceof List<?> list) {
+public Object execute(String commandText) {
 
-            return list.stream()
-                    .map(this::format)
-                    .collect(Collectors.toList());
-        }
+    List<String> tokens =
+            tokenizer.tokenize(commandText);
 
-        /*
-         * Set
-         */
-        if (response instanceof Set<?> set) {
+    String command =
+            tokens.get(0).toUpperCase();
 
-            return set.stream()
-                    .map(this::format)
-                    .collect(Collectors.toSet());
-        }
+    ProtocolCommand protocolCommand =
+            () -> command.getBytes();
 
-        /*
-         * Map
-         */
-        if (response instanceof Map<?, ?> map) {
+    byte[][] args =
+            tokens.stream()
+                    .skip(1)
+                    .map(v ->
+                            v.getBytes(
+                                    StandardCharsets.UTF_8))
+                    .toArray(byte[][]::new);
 
-            Map<Object, Object> result =
-                    new LinkedHashMap<>();
+    try (Jedis jedis =
+                 jedisPool.getResource()) {
 
-            map.forEach((key, value) ->
+        Connection connection =
+                jedis.getConnection();
 
-                    result.put(
-                            format(key),
-                            format(value)));
+        connection.sendCommand(
+                protocolCommand,
+                args);
 
-            return result;
-        }
-
-        /*
-         * Array
-         */
-        if (response instanceof Object[] array) {
-
-            return Arrays.stream(array)
-                    .map(this::format)
-                    .toList();
-        }
-
-        /*
-         * Numeric Types
-         */
-        if (response instanceof Integer ||
-                response instanceof Long ||
-                response instanceof Double ||
-                response instanceof Float ||
-                response instanceof Boolean) {
-
-            return response;
-        }
-
-        return response.toString();
+        return formatter.format(
+                connection.getOne());
     }
 }
