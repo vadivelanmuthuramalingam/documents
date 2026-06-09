@@ -1,13 +1,44 @@
-@Configuration
-public class StaticResourceConfig
-        implements WebMvcConfigurer {
+Professional Certificate Course in Generative AI and Machine Learning
 
-    @Override
-    public void addResourceHandlers(
-            ResourceHandlerRegistry registry) {
+I am excited about the opportunity to join Citi as a Vice President because it aligns with my aspiration to lead large-scale technology initiatives that drive business value and innovation. Throughout my career, I have successfully designed and delivered enterprise-grade solutions using modern technologies, with a strong focus on scalability, resilience, performance, and operational excellence.
 
-        registry.addResourceHandler("/**")
-                .addResourceLocations(
-                        "classpath:/static/");
-    }
-}
+I am particularly drawn to Citi's global technology ecosystem and its commitment to digital transformation. I believe my experience in enterprise architecture, cloud-native applications, microservices, event-driven systems, and platform engineering can contribute to building secure, high-performing, and customer-centric solutions. Beyond technical delivery, I enjoy mentoring teams, collaborating with cross-functional stakeholders, and driving engineering best practices to achieve strategic business outcomes.
+
+I see this role as an opportunity to make a meaningful impact while continuing to grow as a technology leader in a globally respected organization.
+
+
+I have 18+ years experience in Banking Industry (Payments & Collections Domain - IT Industry). Currently working in Altimetrik for CITIGRoup commercial card payment system and i was in Virtusa for Barclays corporate payment system(Intellect product) and worked with Standard Chartered Bank, as Technical Manager in their Core Banking System – Cash Management and Payments System Development & implementation programs in various countries especially AFRICA, MENA & MESA market. 
+Having 8+ years of experience in formulating architectural solutions for enterprise by using cloud computing and API design principles. Creating a new evolutionary strategy in building solutions and the end product is always ready for change and seamlessly scale up with business growth.  I am not tied in any specific role’s, I wear many hats during the software life-cycle which includes Architecture, Solution Designing, Individual Contributor to lead the product, developer and refining software to produce the required product.
+
+Refer the below details for more understanding on profile and reply me for further queries
+
+Banking Experience: Standard Chartered Bank, Barclays Bank, CITI Bank
+BFSI Knowledge      : Payments and Collections, SWIFT Message, ISO Message, Corporate Banking, I-Banking, CARDS, Channels and
+AML.
+SWIFT Messages    : MT101, MT102, MT103, MT104, MT200, MT202, MT202 Cov, MT110, MT400, MT191, MT199, MT299,
+MT399, MT999, MT012, MT019, MT940, MT950, MT900, MT910.
+ISO 20022              : PACS.002, PACS.003, PACS.004, PACS.005, PACS.007, PACS.008, PACS.009, CAMT.052, CAMT.053, CAMT.054,
+CAMT.056, PAIN.001, PAIN.002, PAIN.008, PAIN.009, PAIN.013.
+Card Payments       : VISA &amp; Master Card virtual card payments for corporate customer transaction, Mobile Wallets
+
+Onsite Implementation / Payments Product Rollout
+ Zimbabwe
+ Ghana
+ Kenya
+ Nigeria
+ Sierra Leone
+ Gambia
+ Jordan
+ Tanzania
+ Botswana
+ Singapore
+
+Technology
+Programing Language: Java, Spring Boot Frameworks, C#.Net, Vb.Net, Asp.Net
+Cloud Native Platform: Docker, Openshift, AWS, Kubernetes
+Cache Mechanism     :  Redis, Hazelcast
+Distributed Tracing     :  Splunk, ELK
+Spring Framework      : Spring Boot, Spring Batch, Spring Integration, Spring Data Flow, Spring MVC, API’s
+ESB                            : Kafka, Solace, IBM MQ
+Database                    : Oracle, Postgres, IBM DB2, Mongo
+Reports                      : Crystal Report
