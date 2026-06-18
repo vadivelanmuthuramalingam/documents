@@ -1,0 +1,55 @@
+XADD <stream-name> <id> field1 value1 field2 value2 ...
+
+<stream-name> → Name of the stream.
+<id> → Entry ID.
+* → Auto-generate ID.
+milliseconds-sequence → Custom ID.
+field value → Key-value pairs stored in the entry.
+
+
+Example:
+	XADD order-stream * orderId 1001 customer John amount 250
+	
+
+order-stream
+|
++-- 1750256712345-0
+      orderId = 1001
+      customer = John
+      amount = 250
+
+
+Insert Another Event:
+		XADD order-stream * orderId 1002 customer David amount 500
+		
+Read all events
+	XRANGE order-stream - +		
+	
+	1) 1750256712345-0
+	   orderId
+	   1001
+	   customer
+	   John
+	   amount
+	   250
+
+	2) 1750256715000-0
+	   orderId
+	   1002
+	   customer
+	   David
+	   amount
+	   500
+Get Particular Stream Data:
+XRANGE order-stream 1750256712345-0 1750256712345-0
+
+	   
+Specify your own ID
+XADD order-stream 1000-1 orderId 1003 customer Alex amount 700
+
+
+Add JSON as a field
+XADD payment-stream * payload \
+'{"paymentId":"P100","status":"SUCCESS","amount":1000}'
+
+	   
